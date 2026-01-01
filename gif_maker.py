@@ -15,33 +15,86 @@ import threading
 from datetime import datetime
 import subprocess
 import sys
+import platform
+from typing import Optional, Tuple, List
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# UI Constants
+WINDOW_WIDTH = 1000
+WINDOW_HEIGHT = 700
+MIN_WIDTH = 900
+MIN_HEIGHT = 650
+PREVIEW_MAX_SIZE = (350, 250)
+MIN_REGION_SIZE = 100
+
+# Color Scheme
+COLOR_BG_PRIMARY = '#2c3e50'
+COLOR_BG_SECONDARY = '#34495e'
+COLOR_ACCENT_RED = '#e74c3c'
+COLOR_ACCENT_GREEN = '#27ae60'
+COLOR_ACCENT_BLUE = '#3498db'
+COLOR_ACCENT_PURPLE = '#9b59b6'
+COLOR_ACCENT_ORANGE = '#e67e22'
+COLOR_ACCENT_YELLOW = '#f39c12'
+COLOR_TEXT_WHITE = 'white'
+COLOR_TEXT_LIGHT = '#bdc3c7'
+COLOR_TEXT_LIGHTBLUE = 'lightblue'
+
+# Timing Constants
+WINDOW_HIDE_DELAY = 0.5
+SELECTION_CLOSE_DELAY = 2000
+MIN_INTERVAL = 0.1
+MAX_INTERVAL = 60.0
+MIN_SCREENSHOT_COUNT = 1
+MAX_SCREENSHOT_COUNT = 1000
+
+# Frame Duration Constants (milliseconds)
+FRAME_DURATION_SLOW = 333  # 3 FPS
+FRAME_DURATION_NORMAL = 200  # 5 FPS
+FRAME_DURATION_FAST = 125  # 8 FPS
+FRAME_DURATION_VERY_FAST = 100  # 10 FPS
 
 class GIFMaker:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk) -> None:
+        """Initialize the GIFMaker application.
+        
+        Args:
+            root: The main tkinter root window.
+        """
         self.root = root
         self.root.title("Gif-Maker V1.0")
-        self.root.geometry("1000x700")
-        self.root.minsize(900, 650)  # Set minimum window size
-        self.root.configure(bg='#2c3e50')
+        self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+        self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
+        self.root.configure(bg=COLOR_BG_PRIMARY)
+        
+        # Thread safety
+        self._lock = threading.Lock()
+        self._recording_active = False
         
         # Center the window on screen
         self.center_window()
         
         # Variables
-        self.screenshots = []
+        self.screenshots: List[Image.Image] = []
         self.is_recording = False
-        self.region = None
+        self.region: Optional[Tuple[int, int, int, int]] = None
         self.screenshot_count = 10
         self.interval = 0.5
         self.output_path = "demo.gif"
         self.current_preview_index = 0
-        self.preview_images = []  # Store resized images for preview
+        self.preview_images: List[Image.Image] = []  # Store resized images for preview
         
         # Create GUI
         self.create_widgets()
+        
+        # Setup keyboard shortcuts
+        self.setup_keyboard_shortcuts()
     
-    def center_window(self):
-        """Center the window on the screen"""
+    def center_window(self) -> None:
+        """Center the window on the screen."""
         self.root.update_idletasks()
         width = self.root.winfo_width()
         height = self.root.winfo_height()
@@ -49,43 +102,44 @@ class GIFMaker:
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
         
-    def create_widgets(self):
+    def create_widgets(self) -> None:
+        """Create and configure all GUI widgets."""
         # Title
         title_label = tk.Label(
             self.root, 
             text="🎬 Gif-Maker V1.0", 
             font=("Arial", 20, "bold"),
-            fg="white",
-            bg="#2c3e50"
+            fg=COLOR_TEXT_WHITE,
+            bg=COLOR_BG_PRIMARY
         )
         title_label.pack(pady=10)
         
         # Main frame with side panel
-        main_frame = tk.Frame(self.root, bg="#34495e", padx=20, pady=20)
+        main_frame = tk.Frame(self.root, bg=COLOR_BG_SECONDARY, padx=20, pady=20)
         main_frame.pack(fill="both", expand=True)
         
         # Create left and right panels
-        left_panel = tk.Frame(main_frame, bg="#34495e")
+        left_panel = tk.Frame(main_frame, bg=COLOR_BG_SECONDARY)
         left_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
         
-        right_panel = tk.Frame(main_frame, bg="#34495e", width=400)
+        right_panel = tk.Frame(main_frame, bg=COLOR_BG_SECONDARY, width=400)
         right_panel.pack(side="right", fill="y", padx=(10, 0))
         right_panel.pack_propagate(False)  # Prevent shrinking
         
         # Region selection frame
-        region_frame = tk.LabelFrame(left_panel, text="📐 Region Selection", fg="white", bg="#34495e")
+        region_frame = tk.LabelFrame(left_panel, text="📐 Region Selection", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY)
         region_frame.pack(fill="x", pady=(0, 10))
         
         # Region selection buttons
-        button_frame = tk.Frame(region_frame, bg="#34495e")
+        button_frame = tk.Frame(region_frame, bg=COLOR_BG_SECONDARY)
         button_frame.pack(pady=10)
         
         tk.Button(
             button_frame, 
             text="Manual Coordinates", 
             command=self.select_region,
-            bg="#3498db",
-            fg="white",
+            bg=COLOR_ACCENT_BLUE,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 10, "bold")
         ).pack(side="left", padx=5)
         
@@ -93,8 +147,8 @@ class GIFMaker:
             button_frame, 
             text="Full Screen", 
             command=self.select_fullscreen,
-            bg="#9b59b6",
-            fg="white",
+            bg=COLOR_ACCENT_PURPLE,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 10, "bold")
         ).pack(side="left", padx=5)
         
@@ -102,43 +156,43 @@ class GIFMaker:
             button_frame, 
             text="Common Browser Size", 
             command=self.select_browser_size,
-            bg="#e67e22",
-            fg="white",
+            bg=COLOR_ACCENT_ORANGE,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 10, "bold")
         ).pack(side="left", padx=5)
         
         self.region_label = tk.Label(
             region_frame, 
             text="No region selected", 
-            fg="#bdc3c7",
-            bg="#34495e"
+            fg=COLOR_TEXT_LIGHT,
+            bg=COLOR_BG_SECONDARY
         )
         self.region_label.pack()
         
         # Settings frame
-        settings_frame = tk.LabelFrame(left_panel, text="⚙️ Settings", fg="white", bg="#34495e")
+        settings_frame = tk.LabelFrame(left_panel, text="⚙️ Settings", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY)
         settings_frame.pack(fill="x", pady=(0, 10))
         
         # Screenshot count
-        tk.Label(settings_frame, text="Number of Screenshots:", fg="white", bg="#34495e").grid(row=0, column=0, sticky="w", padx=10, pady=5)
+        tk.Label(settings_frame, text="Number of Screenshots:", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY).grid(row=0, column=0, sticky="w", padx=10, pady=5)
         self.count_var = tk.StringVar(value="10")
         count_entry = tk.Entry(settings_frame, textvariable=self.count_var, width=10)
         count_entry.grid(row=0, column=1, padx=10, pady=5)
         
         # Interval
-        tk.Label(settings_frame, text="Interval (seconds):", fg="white", bg="#34495e").grid(row=1, column=0, sticky="w", padx=10, pady=5)
+        tk.Label(settings_frame, text="Interval (seconds):", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY).grid(row=1, column=0, sticky="w", padx=10, pady=5)
         self.interval_var = tk.StringVar(value="0.5")
         interval_entry = tk.Entry(settings_frame, textvariable=self.interval_var, width=10)
         interval_entry.grid(row=1, column=1, padx=10, pady=5)
         
         # Output path
-        tk.Label(settings_frame, text="Output File:", fg="white", bg="#34495e").grid(row=2, column=0, sticky="w", padx=10, pady=5)
+        tk.Label(settings_frame, text="Output File:", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY).grid(row=2, column=0, sticky="w", padx=10, pady=5)
         self.output_var = tk.StringVar(value="demo.gif")
         output_entry = tk.Entry(settings_frame, textvariable=self.output_var, width=20)
         output_entry.grid(row=2, column=1, padx=10, pady=5)
         
         # Quality setting
-        tk.Label(settings_frame, text="Quality:", fg="white", bg="#34495e").grid(row=3, column=0, sticky="w", padx=10, pady=5)
+        tk.Label(settings_frame, text="Quality:", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY).grid(row=3, column=0, sticky="w", padx=10, pady=5)
         self.quality_var = tk.StringVar(value="MAX")
         quality_combo = ttk.Combobox(settings_frame, textvariable=self.quality_var, width=15, state="readonly")
         quality_combo['values'] = ("MAX (100%)", "High (80%)", "Medium (85%)", "Low (75%)")
@@ -148,15 +202,15 @@ class GIFMaker:
         quality_tips = tk.Label(
             settings_frame, 
             text="MAX: Perfect quality, refined processing | High: Smooth gradients | Medium: Balanced | Low: Small files", 
-            fg="lightblue", 
-            bg="#34495e",
+            fg=COLOR_TEXT_LIGHTBLUE, 
+            bg=COLOR_BG_SECONDARY,
             font=("Arial", 8),
             wraplength=300
         )
         quality_tips.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=2)
         
         # Playback speed setting
-        tk.Label(settings_frame, text="Playback Speed:", fg="white", bg="#34495e").grid(row=5, column=0, sticky="w", padx=10, pady=5)
+        tk.Label(settings_frame, text="Playback Speed:", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY).grid(row=5, column=0, sticky="w", padx=10, pady=5)
         self.speed_var = tk.StringVar(value="Normal (5 FPS)")
         speed_combo = ttk.Combobox(settings_frame, textvariable=self.speed_var, width=15, state="readonly")
         speed_combo['values'] = ("Slow (3 FPS)", "Normal (5 FPS)", "Fast (8 FPS)", "Very Fast (10 FPS)")
@@ -166,8 +220,8 @@ class GIFMaker:
         speed_tips = tk.Label(
             settings_frame,
             text="Slow: Easy to follow | Normal: Balanced | Fast: Quick preview | Very Fast: Rapid cycling",
-            fg="lightblue",
-            bg="#34495e",
+            fg=COLOR_TEXT_LIGHTBLUE,
+            bg=COLOR_BG_SECONDARY,
             font=("Arial", 8),
             wraplength=300
         )
@@ -178,11 +232,11 @@ class GIFMaker:
             text="Browse", 
             command=self.browse_output,
             bg="#95a5a6",
-            fg="white"
+            fg=COLOR_TEXT_WHITE
         ).grid(row=2, column=2, padx=5, pady=5)
         
         # Control buttons frame
-        control_frame = tk.Frame(left_panel, bg="#34495e")
+        control_frame = tk.Frame(left_panel, bg=COLOR_BG_SECONDARY)
         control_frame.pack(fill="x", pady=(0, 10))
         
         # Start/Stop recording button
@@ -190,8 +244,8 @@ class GIFMaker:
             control_frame,
             text="🎬 Start Recording",
             command=self.toggle_recording,
-            bg="#e74c3c",
-            fg="white",
+            bg=COLOR_ACCENT_RED,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 12, "bold"),
             height=2
         )
@@ -202,8 +256,8 @@ class GIFMaker:
             control_frame,
             text="🎞️ Create GIF",
             command=self.create_gif,
-            bg="#27ae60",
-            fg="white",
+            bg=COLOR_ACCENT_GREEN,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 12, "bold"),
             height=2,
             state="disabled"
@@ -215,23 +269,23 @@ class GIFMaker:
             control_frame,
             text="🗑️ Clear",
             command=self.clear_screenshots,
-            bg="#f39c12",
-            fg="white",
+            bg=COLOR_ACCENT_YELLOW,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 12, "bold"),
             height=2
         )
         self.clear_button.pack(side="left")
         
         # Status frame
-        status_frame = tk.LabelFrame(left_panel, text="📊 Status", fg="white", bg="#34495e")
+        status_frame = tk.LabelFrame(left_panel, text="📊 Status", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY)
         status_frame.pack(fill="both", expand=True)
         
         # Screenshot count display
         self.count_display = tk.Label(
             status_frame,
             text="Screenshots: 0",
-            fg="white",
-            bg="#34495e",
+            fg=COLOR_TEXT_WHITE,
+            bg=COLOR_BG_SECONDARY,
             font=("Arial", 12)
         )
         self.count_display.pack(pady=5)
@@ -244,8 +298,8 @@ class GIFMaker:
         self.status_text = tk.Text(
             status_frame,
             height=6,
-            bg="#2c3e50",
-            fg="white",
+            bg=COLOR_BG_PRIMARY,
+            fg=COLOR_TEXT_WHITE,
             font=("Consolas", 9)
         )
         self.status_text.pack(fill="both", expand=True, padx=10, pady=5)
@@ -259,18 +313,38 @@ class GIFMaker:
         self.status_text.config(yscrollcommand=scrollbar.set)
         scrollbar.config(command=self.status_text.yview)
     
-    def setup_preview_panel(self, parent):
-        """Setup the image preview panel"""
+    def setup_keyboard_shortcuts(self) -> None:
+        """Setup keyboard shortcuts for common actions."""
+        self.root.bind('<space>', lambda e: self.toggle_recording())
+        self.root.bind('<Escape>', lambda e: self.cancel_if_recording())
+        self.root.bind('<Control-s>', lambda e: self.create_gif())
+        self.root.bind('<Control-c>', lambda e: self.clear_screenshots())
+    
+    def cancel_if_recording(self, event: Optional[tk.Event] = None) -> None:
+        """Cancel recording if active.
+        
+        Args:
+            event: Optional tkinter event (for keyboard binding).
+        """
+        if self.is_recording:
+            self.stop_recording()
+    
+    def setup_preview_panel(self, parent: tk.Frame) -> None:
+        """Setup the image preview panel.
+        
+        Args:
+            parent: The parent frame to attach the preview panel to.
+        """
         # Preview frame
-        preview_frame = tk.LabelFrame(parent, text="🖼️ Image Preview", fg="white", bg="#34495e")
+        preview_frame = tk.LabelFrame(parent, text="🖼️ Image Preview", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY)
         preview_frame.pack(fill="both", expand=True, pady=(0, 10))
         
         # Preview image display - make it fill the available space
         self.preview_label = tk.Label(
             preview_frame,
             text="No images captured yet",
-            bg="#2c3e50",
-            fg="white",
+            bg=COLOR_BG_PRIMARY,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 10),
             width=40,
             height=20
@@ -278,7 +352,7 @@ class GIFMaker:
         self.preview_label.pack(fill="both", expand=True, padx=10, pady=10)
         
         # Navigation controls
-        nav_frame = tk.Frame(preview_frame, bg="#34495e")
+        nav_frame = tk.Frame(preview_frame, bg=COLOR_BG_SECONDARY)
         nav_frame.pack(fill="x", padx=10, pady=5)
         
         # Previous button
@@ -287,8 +361,8 @@ class GIFMaker:
             text="◀",
             command=self.prev_image,
             state="disabled",
-            bg="#3498db",
-            fg="white",
+            bg=COLOR_ACCENT_BLUE,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 12, "bold"),
             width=3
         )
@@ -298,8 +372,8 @@ class GIFMaker:
         self.image_counter = tk.Label(
             nav_frame,
             text="0/0",
-            bg="#34495e",
-            fg="white",
+            bg=COLOR_BG_SECONDARY,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 10, "bold")
         )
         self.image_counter.pack(side="left", expand=True)
@@ -310,8 +384,8 @@ class GIFMaker:
             text="▶",
             command=self.next_image,
             state="disabled",
-            bg="#3498db",
-            fg="white",
+            bg=COLOR_ACCENT_BLUE,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 12, "bold"),
             width=3
         )
@@ -321,15 +395,15 @@ class GIFMaker:
         self.image_info = tk.Label(
             preview_frame,
             text="",
-            bg="#34495e",
-            fg="lightblue",
+            bg=COLOR_BG_SECONDARY,
+            fg=COLOR_TEXT_LIGHTBLUE,
             font=("Arial", 8),
             wraplength=280
         )
         self.image_info.pack(padx=10, pady=5)
         
         # Action buttons
-        action_frame = tk.Frame(preview_frame, bg="#34495e")
+        action_frame = tk.Frame(preview_frame, bg=COLOR_BG_SECONDARY)
         action_frame.pack(fill="x", padx=10, pady=5)
         
         # Delete current image button
@@ -338,8 +412,8 @@ class GIFMaker:
             text="🗑️ Delete",
             command=self.delete_current_image,
             state="disabled",
-            bg="#e74c3c",
-            fg="white",
+            bg=COLOR_ACCENT_RED,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 9)
         )
         self.delete_button.pack(side="left", padx=2)
@@ -349,27 +423,35 @@ class GIFMaker:
             action_frame,
             text="🔄 Refresh",
             command=self.refresh_preview,
-            bg="#27ae60",
-            fg="white",
+            bg=COLOR_ACCENT_GREEN,
+            fg=COLOR_TEXT_WHITE,
             font=("Arial", 9)
         )
         self.refresh_button.pack(side="right", padx=2)
         
-    def log(self, message):
-        """Add message to status log"""
+    def log(self, message: str) -> None:
+        """Add message to status log.
+        
+        Args:
+            message: The message to log.
+        """
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.status_text.insert(tk.END, f"[{timestamp}] {message}\n")
         self.status_text.see(tk.END)
         self.root.update()
     
-    def log_thread_safe(self, message):
-        """Thread-safe logging for background operations"""
+    def log_thread_safe(self, message: str) -> None:
+        """Thread-safe logging for background operations.
+        
+        Args:
+            message: The message to log.
+        """
         def update_log():
             self.log(message)
         self.root.after(0, update_log)
     
-    def refresh_preview(self):
-        """Refresh the image preview"""
+    def refresh_preview(self) -> None:
+        """Refresh the image preview with lazy loading."""
         if not self.screenshots:
             self.preview_label.config(text="No images captured yet")
             self.image_counter.config(text="0/0")
@@ -379,19 +461,19 @@ class GIFMaker:
             self.delete_button.config(state="disabled")
             return
         
-        # Create resized images for preview
-        self.preview_images = []
-        for screenshot in self.screenshots:
-            # Resize to fit preview (max 350x250) - much larger for better visibility
-            resized = screenshot.copy()
-            resized.thumbnail((350, 250), Image.Resampling.LANCZOS)
-            self.preview_images.append(resized)
+        # Only create thumbnails if not already created or count changed
+        if len(self.preview_images) != len(self.screenshots):
+            self.preview_images = []
+            for screenshot in self.screenshots:
+                resized = screenshot.copy()
+                resized.thumbnail(PREVIEW_MAX_SIZE, Image.Resampling.LANCZOS)
+                self.preview_images.append(resized)
         
         # Update preview
         self.update_preview_display()
     
-    def update_preview_display(self):
-        """Update the preview display with current image"""
+    def update_preview_display(self) -> None:
+        """Update the preview display with current image."""
         if not self.screenshots or not self.preview_images:
             return
         
@@ -423,26 +505,34 @@ class GIFMaker:
         self.next_button.config(state="normal" if self.current_preview_index < len(self.screenshots) - 1 else "disabled")
         self.delete_button.config(state="normal")
     
-    def prev_image(self):
-        """Show previous image"""
+    def prev_image(self) -> None:
+        """Show previous image."""
         if self.current_preview_index > 0:
             self.current_preview_index -= 1
             self.update_preview_display()
     
-    def next_image(self):
-        """Show next image"""
+    def next_image(self) -> None:
+        """Show next image."""
         if self.current_preview_index < len(self.screenshots) - 1:
             self.current_preview_index += 1
             self.update_preview_display()
     
-    def delete_current_image(self):
-        """Delete the currently displayed image"""
+    def delete_current_image(self) -> None:
+        """Delete the currently displayed image."""
         if not self.screenshots or self.current_preview_index >= len(self.screenshots):
             return
         
-        # Remove the image
+        # Remove the image and free memory
+        img = self.screenshots[self.current_preview_index]
+        if hasattr(img, 'close'):
+            img.close()
         del self.screenshots[self.current_preview_index]
-        del self.preview_images[self.current_preview_index]
+        
+        if self.current_preview_index < len(self.preview_images):
+            preview_img = self.preview_images[self.current_preview_index]
+            if hasattr(preview_img, 'close'):
+                preview_img.close()
+            del self.preview_images[self.current_preview_index]
         
         # Adjust index if needed
         if self.current_preview_index >= len(self.screenshots):
@@ -457,8 +547,73 @@ class GIFMaker:
         # Refresh preview
         self.refresh_preview()
         
-    def select_region(self):
-        """Select region with visual feedback"""
+    def validate_settings(self) -> Tuple[bool, Optional[str]]:
+        """Validate all user settings before recording.
+        
+        Returns:
+            Tuple of (is_valid, error_message). If valid, error_message is None.
+        """
+        try:
+            count = int(self.count_var.get())
+            if count < MIN_SCREENSHOT_COUNT or count > MAX_SCREENSHOT_COUNT:
+                return False, f"Screenshot count must be between {MIN_SCREENSHOT_COUNT} and {MAX_SCREENSHOT_COUNT}"
+            
+            interval = float(self.interval_var.get())
+            if interval < MIN_INTERVAL or interval > MAX_INTERVAL:
+                return False, f"Interval must be between {MIN_INTERVAL} and {MAX_INTERVAL} seconds"
+                
+            if not self.region:
+                return False, "Please select a region first"
+                
+            return True, None
+        except ValueError as e:
+            return False, f"Invalid input: {e}"
+    
+    def estimate_gif_size(self) -> str:
+        """Estimate GIF file size based on current settings.
+        
+        Returns:
+            Estimated file size as a formatted string.
+        """
+        if not self.screenshots:
+            return "No screenshots"
+        
+        # Rough estimation: average image size * frame count * quality factor
+        try:
+            avg_size = sum(len(img.tobytes()) for img in self.screenshots) / len(self.screenshots)
+            quality_setting = self.quality_var.get().split()[0]
+            quality_factor = {'MAX': 1.0, 'High': 0.8, 'Medium': 0.6, 'Low': 0.4}.get(
+                quality_setting, 0.6
+            )
+            estimated = avg_size * len(self.screenshots) * quality_factor
+            return f"~{estimated / 1024 / 1024:.1f} MB"
+        except Exception:
+            return "Unable to estimate"
+    
+    def open_file_location(self, path: str) -> None:
+        """Open file location in system file manager (cross-platform).
+        
+        Args:
+            path: The file path whose directory should be opened.
+        """
+        folder = os.path.dirname(os.path.abspath(path))
+        try:
+            if platform.system() == 'Windows':
+                os.startfile(folder)
+            elif platform.system() == 'Darwin':  # macOS
+                subprocess.run(['open', folder])
+            else:  # Linux
+                subprocess.run(['xdg-open', folder])
+        except Exception as e:
+            self.log(f"Could not open file location: {e}")
+    
+    def select_region(self) -> None:
+        """Select region with visual feedback.
+        
+        Creates a full-screen overlay with canvas drawing for interactive
+        region selection. User can click and drag to select the area
+        to capture.
+        """
         self.log("Starting visual region selection...")
         
         # Create a full-screen overlay for region selection
@@ -495,8 +650,8 @@ class GIFMaker:
         # Focus the overlay
         self.region_overlay.focus_set()
         
-    def show_selection_instructions(self):
-        """Show instructions on the overlay"""
+    def show_selection_instructions(self) -> None:
+        """Show instructions on the overlay."""
         screen_width = self.region_overlay.winfo_screenwidth()
         screen_height = self.region_overlay.winfo_screenheight()
         
@@ -556,8 +711,12 @@ class GIFMaker:
                 tags="instruction_box"
             )
     
-    def start_selection(self, event):
-        """Start region selection"""
+    def start_selection(self, event: tk.Event) -> None:
+        """Start region selection.
+        
+        Args:
+            event: The mouse event containing click coordinates.
+        """
         self.start_x = event.x
         self.start_y = event.y
         
@@ -624,8 +783,12 @@ class GIFMaker:
             tags="coord_box"
         )
     
-    def update_selection(self, event):
-        """Update selection rectangle"""
+    def update_selection(self, event: tk.Event) -> None:
+        """Update selection rectangle.
+        
+        Args:
+            event: The mouse event containing current drag coordinates.
+        """
         if self.rect_id:
             # Update rectangle
             self.region_canvas.coords(
@@ -705,8 +868,12 @@ class GIFMaker:
                 tags="coords"
             )
     
-    def end_selection(self, event):
-        """End region selection"""
+    def end_selection(self, event: tk.Event) -> None:
+        """End region selection.
+        
+        Args:
+            event: The mouse event containing release coordinates.
+        """
         if self.start_x is None or self.start_y is None:
             return
             
@@ -720,7 +887,7 @@ class GIFMaker:
         height = abs(y2 - y1)
         
         # Validate selection
-        if width < 100 or height < 100:
+        if width < MIN_REGION_SIZE or height < MIN_REGION_SIZE:
             screen_width = self.region_overlay.winfo_screenwidth()
             screen_height = self.region_overlay.winfo_screenheight()
             
@@ -786,8 +953,12 @@ class GIFMaker:
         # Close overlay after delay
         self.region_overlay.after(2000, self.close_selection_overlay)
     
-    def cancel_selection(self, event=None):
-        """Cancel region selection"""
+    def cancel_selection(self, event: Optional[tk.Event] = None) -> None:
+        """Cancel region selection.
+        
+        Args:
+            event: Optional tkinter event (for keyboard binding).
+        """
         self.log("Region selection cancelled")
         
         # Clean up visual elements
@@ -798,29 +969,56 @@ class GIFMaker:
         
         self.close_selection_overlay()
     
-    def close_selection_overlay(self):
-        """Close the selection overlay"""
+    def close_selection_overlay(self) -> None:
+        """Close the selection overlay and clean up resources."""
         if hasattr(self, 'region_overlay'):
-            self.region_overlay.destroy()
-            del self.region_overlay
+            try:
+                # Unbind events to prevent memory leaks
+                if hasattr(self, 'region_canvas'):
+                    try:
+                        self.region_canvas.unbind_all('<Button-1>')
+                        self.region_canvas.unbind_all('<B1-Motion>')
+                        self.region_canvas.unbind_all('<ButtonRelease-1>')
+                    except Exception:
+                        pass  # Events may already be unbound
+                self.region_overlay.destroy()
+            except Exception as e:
+                self.log(f"Error closing overlay: {e}")
+            finally:
+                # Clean up references
+                if hasattr(self, 'region_overlay'):
+                    del self.region_overlay
+                if hasattr(self, 'region_canvas'):
+                    del self.region_canvas
     
-    def select_fullscreen(self):
-        """Select full screen region"""
+    def select_fullscreen(self) -> None:
+        """Select full screen region.
+        
+        Automatically sets the capture region to cover the entire screen.
+        """
         try:
             screen_width, screen_height = pyautogui.size()
             self.region = (0, 0, screen_width, screen_height)
             self.region_label.config(text=f"Region: Full Screen ({screen_width}x{screen_height})")
             self.log(f"Full screen selected: {screen_width}x{screen_height}")
         except Exception as e:
-            self.log(f"Error selecting full screen: {e}")
+            error_msg = (
+                f"Error selecting full screen: {e}\n"
+                f"Tip: Ensure your display is properly configured."
+            )
+            self.log(error_msg)
     
-    def select_browser_size(self):
-        """Select common browser window size"""
+    def select_browser_size(self) -> None:
+        """Select common browser window size.
+        
+        Attempts to automatically detect and select a browser-sized region
+        centered on the screen. Falls back to manual selection if needed.
+        """
         self.log("Selecting common browser window size...")
         
         # Hide main window
         self.root.withdraw()
-        time.sleep(0.5)
+        time.sleep(WINDOW_HIDE_DELAY)
         
         try:
             # Get screen size
@@ -850,43 +1048,69 @@ class GIFMaker:
             print("If this doesn't capture your browser correctly, use 'Manual Coordinates'")
             
         except Exception as e:
-            self.log(f"Browser size selection error: {e}")
+            error_msg = (
+                f"Browser size selection error: {e}\n"
+                f"Tip: Use 'Manual Coordinates' to select your browser window manually."
+            )
+            self.log(error_msg)
             print(f"\n❌ Error: {e}")
         finally:
             # Show main window again
             self.root.deiconify()
             
-    def browse_output(self):
-        """Browse for output file"""
+    def browse_output(self) -> None:
+        """Browse for output file with path validation."""
         filename = filedialog.asksaveasfilename(
             defaultextension=".gif",
             filetypes=[("GIF files", "*.gif"), ("All files", "*.*")]
         )
         if filename:
-            self.output_var.set(filename)
+            # Validate path
+            try:
+                # Ensure directory exists
+                dir_path = os.path.dirname(filename)
+                if dir_path:
+                    os.makedirs(dir_path, exist_ok=True)
+                self.output_var.set(filename)
+            except (OSError, ValueError) as e:
+                messagebox.showerror("Error", f"Invalid file path: {e}")
             
-    def toggle_recording(self):
-        """Start or stop recording"""
+    def toggle_recording(self) -> None:
+        """Start or stop recording.
+        
+        Toggles between recording and stopped states. If not recording,
+        starts a new recording session. If recording, stops the current session.
+        """
         if not self.is_recording:
             self.start_recording()
         else:
             self.stop_recording()
             
-    def start_recording(self):
-        """Start recording screenshots"""
-        if not self.region:
-            messagebox.showerror("Error", "Please select a region first!")
-            return
-            
-        try:
-            self.screenshot_count = int(self.count_var.get())
-            self.interval = float(self.interval_var.get())
-        except ValueError:
-            messagebox.showerror("Error", "Please enter valid numbers for count and interval!")
+    def start_recording(self) -> None:
+        """Start recording screenshots.
+        
+        Validates settings, hides the main window, and starts a background
+        thread to capture screenshots at the specified interval.
+        
+        Raises:
+            Shows error dialog if settings are invalid or region not selected.
+        """
+        # Validate settings before starting
+        is_valid, error_msg = self.validate_settings()
+        if not is_valid:
+            messagebox.showerror("Error", error_msg or "Invalid settings!")
             return
             
         self.is_recording = True
         self.record_button.config(text="⏹️ Stop Recording", bg="#e74c3c")
+        self.create_button.config(state="disabled")
+        
+        # Get validated values
+        self.screenshot_count = int(self.count_var.get())
+        self.interval = float(self.interval_var.get())
+        
+        self.is_recording = True
+        self.record_button.config(text="⏹️ Stop Recording", bg=COLOR_ACCENT_RED)
         self.create_button.config(state="disabled")
         
         # Hide the window during recording to avoid it appearing in screenshots
@@ -894,60 +1118,102 @@ class GIFMaker:
         self.log("Window hidden for clean recording...")
         
         # Small delay to ensure window is completely hidden
-        time.sleep(0.5)
+        time.sleep(WINDOW_HIDE_DELAY)
         
-        # Start recording in separate thread
+        # Start recording in separate thread with thread safety
+        with self._lock:
+            if self._recording_active:
+                self.log("Recording already in progress")
+                self.is_recording = False
+                self.root.deiconify()
+                return
+            self._recording_active = True
+        
         self.recording_thread = threading.Thread(target=self.record_screenshots)
         self.recording_thread.daemon = True
         self.recording_thread.start()
         
-    def stop_recording(self):
-        """Stop recording"""
+    def stop_recording(self) -> None:
+        """Stop recording.
+        
+        Stops the current recording session, restores the main window,
+        and updates UI button states.
+        """
         self.is_recording = False
-        self.record_button.config(text="🎬 Start Recording", bg="#e74c3c")
+        self.record_button.config(text="🎬 Start Recording", bg=COLOR_ACCENT_RED)
         self.create_button.config(state="normal" if self.screenshots else "disabled")
         
         # Show the window again after recording
         self.root.deiconify()
         self.log("Window restored after recording")
         
-    def record_screenshots(self):
-        """Record screenshots in a loop"""
-        self.log(f"Starting recording: {self.screenshot_count} screenshots every {self.interval}s")
+    def record_screenshots(self) -> None:
+        """Record screenshots in a loop (thread-safe).
         
-        for i in range(self.screenshot_count):
-            if not self.is_recording:
-                break
-                
-            try:
-                # Take screenshot of selected region
-                screenshot = pyautogui.screenshot(region=self.region)
-                self.screenshots.append(screenshot)
-                
-                self.log(f"Screenshot {i+1}/{self.screenshot_count} captured")
-                self.count_display.config(text=f"Screenshots: {len(self.screenshots)}")
-                
-                # Update progress
-                progress = ((i + 1) / self.screenshot_count) * 100
-                self.progress['value'] = progress
-                
-                # Refresh preview after each screenshot
-                self.refresh_preview()
-                
-                if i < self.screenshot_count - 1:  # Don't wait after last screenshot
-                    time.sleep(self.interval)
+        Captures screenshots of the selected region at the specified interval.
+        Runs in a background thread to keep the UI responsive. Updates progress
+        and preview in real-time.
+        
+        Note:
+            This method should only be called from a background thread.
+        """
+        try:
+            self.log(f"Starting recording: {self.screenshot_count} screenshots every {self.interval}s")
+            
+            for i in range(self.screenshot_count):
+                if not self.is_recording:
+                    break
                     
-            except Exception as e:
-                self.log(f"Error capturing screenshot {i+1}: {e}")
+                try:
+                    # Take screenshot of selected region
+                    screenshot = pyautogui.screenshot(region=self.region)
+                    self.screenshots.append(screenshot)
+                    
+                    self.log(f"Screenshot {i+1}/{self.screenshot_count} captured")
+                    self.count_display.config(text=f"Screenshots: {len(self.screenshots)}")
+                    
+                    # Update progress
+                    progress = ((i + 1) / self.screenshot_count) * 100
+                    self.progress['value'] = progress
+                    
+                    # Refresh preview after each screenshot
+                    self.refresh_preview()
+                    
+                    if i < self.screenshot_count - 1:  # Don't wait after last screenshot
+                        time.sleep(self.interval)
+                        
+                except Exception as e:
+                    error_msg = (
+                        f"Error capturing screenshot {i+1}: {e}\n"
+                        f"Tip: Ensure the selected region is still visible and accessible."
+                    )
+                    self.log(error_msg)
+        finally:
+            # Always release the lock
+            with self._lock:
+                self._recording_active = False
                 
-        self.log("Recording completed!")
-        # Show window again before stopping recording
-        self.root.deiconify()
-        self.log("Window restored - recording complete")
-        self.stop_recording()
+            self.log("Recording completed!")
+            # Show window again before stopping recording
+            self.root.deiconify()
+            self.log("Window restored - recording complete")
+            self.stop_recording()
         
-    def clear_screenshots(self):
-        """Clear all screenshots"""
+    def clear_screenshots(self) -> None:
+        """Clear all screenshots and free memory.
+        
+        Removes all captured screenshots and preview images, explicitly
+        closing image objects to free memory. Resets the preview display
+        and updates UI state.
+        """
+        # Explicitly delete images to free memory
+        for img in self.screenshots:
+            if hasattr(img, 'close'):
+                img.close()
+        for img in self.preview_images:
+            if hasattr(img, 'close'):
+                img.close()
+                
         self.screenshots.clear()
         self.preview_images.clear()
         self.current_preview_index = 0
@@ -957,11 +1223,20 @@ class GIFMaker:
         self.log("Screenshots cleared")
         self.refresh_preview()
         
-    def create_gif(self):
-        """Create animated GIF from screenshots"""
+    def create_gif(self) -> None:
+        """Create animated GIF from screenshots.
+        
+        Validates that screenshots exist, shows estimated file size,
+        and starts background GIF creation. Disables UI buttons during
+        processing to prevent multiple operations.
+        """
         if not self.screenshots:
             messagebox.showerror("Error", "No screenshots to create GIF from!")
             return
+        
+        # Show estimated file size
+        estimated_size = self.estimate_gif_size()
+        self.log(f"Estimated file size: {estimated_size}")
             
         # Disable buttons during processing to prevent multiple operations
         self.create_button.config(state="disabled")
@@ -974,8 +1249,15 @@ class GIFMaker:
         self.gif_thread.daemon = True
         self.gif_thread.start()
     
-    def create_gif_worker(self):
-        """Worker function for GIF creation in background thread"""
+    def create_gif_worker(self) -> None:
+        """Worker function for GIF creation in background thread.
+        
+        Processes screenshots according to quality settings and creates
+        animated GIF. Runs in separate thread to prevent UI blocking.
+        
+        Raises:
+            Exception: If GIF creation fails, logs error and re-enables UI.
+        """
         try:
             # Get output path
             output_path = self.output_var.get()
@@ -986,15 +1268,15 @@ class GIFMaker:
             # Get playback speed from user selection
             speed_setting = self.speed_var.get()
             if speed_setting.startswith("Slow"):
-                frame_duration = 333  # 3 FPS
+                frame_duration = FRAME_DURATION_SLOW
             elif speed_setting.startswith("Normal"):
-                frame_duration = 200  # 5 FPS
+                frame_duration = FRAME_DURATION_NORMAL
             elif speed_setting.startswith("Fast"):
-                frame_duration = 125  # 8 FPS
+                frame_duration = FRAME_DURATION_FAST
             elif speed_setting.startswith("Very Fast"):
-                frame_duration = 100  # 10 FPS
+                frame_duration = FRAME_DURATION_VERY_FAST
             else:
-                frame_duration = 200  # Default to 5 FPS
+                frame_duration = FRAME_DURATION_NORMAL  # Default to 5 FPS
             
             # Convert all screenshots to RGB mode for better color handling
             processed_screenshots = []
@@ -1069,9 +1351,11 @@ class GIFMaker:
                         # The quantization and sharpening should be sufficient
                         quantized_images.append(quantized)
                         
-                        # Update progress for MAX quality
-                        progress = ((i + 1) / total_frames) * 100
-                        self.log_thread_safe(f"Processing frame {i+1}/{total_frames} ({progress:.1f}%)")
+                        # Update progress for MAX quality (every 10% or last frame)
+                        progress_interval = max(1, total_frames // 10)
+                        if (i + 1) % progress_interval == 0 or i == total_frames - 1:
+                            progress = ((i + 1) / total_frames) * 100
+                            self.log_thread_safe(f"Processing frame {i+1}/{total_frames} ({progress:.1f}%)")
                         
                     except Exception as e:
                         # Fallback to basic processing if advanced processing fails
@@ -1139,23 +1423,28 @@ class GIFMaker:
                 self.clear_button.config(state="normal")
                 # Ask if user wants to open the file
                 if messagebox.askyesno("Success", f"GIF created successfully!\n\nOpen file location?"):
-                    os.startfile(os.path.dirname(os.path.abspath(output_path)))
+                    self.open_file_location(output_path)
             
             self.root.after(0, enable_buttons)
                 
         except Exception as e:
-            self.log_thread_safe(f"Error creating GIF: {e}")
+            error_msg = (
+                f"Error creating GIF: {e}\n"
+                f"Tip: Try a lower quality setting or ensure sufficient disk space."
+            )
+            self.log_thread_safe(error_msg)
             
             # Re-enable buttons on error
             def enable_buttons_error():
                 self.create_button.config(state="normal")
                 self.record_button.config(state="normal")
                 self.clear_button.config(state="normal")
-                messagebox.showerror("Error", f"Failed to create GIF: {e}")
+                messagebox.showerror("Error", f"Failed to create GIF: {e}\n\nTip: Try a lower quality setting or check disk space.")
             
             self.root.after(0, enable_buttons_error)
 
-def main():
+def main() -> None:
+    """Main entry point for the application."""
     # Check if required packages are installed
     try:
         import pyautogui

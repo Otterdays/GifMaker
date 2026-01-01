@@ -82,10 +82,13 @@ python gif_maker.py
 
 ### ⚡ Performance & Reliability
 - **Multi-threading**: Background GIF creation prevents UI freezing
-- **Memory Management**: Efficient handling of large image sets
-- **Error Handling**: Comprehensive error recovery and user feedback
+- **Thread Safety**: Proper synchronization prevents concurrent recording issues
+- **Memory Management**: Efficient handling of large image sets with explicit cleanup
+- **Error Handling**: Comprehensive error recovery with actionable tips
 - **Cross-platform**: Works on Windows, macOS, and Linux
 - **Professional UI**: Modern design with intuitive controls
+- **Keyboard Shortcuts**: Quick access to common operations
+- **File Size Estimation**: Preview estimated GIF size before creation
 
 ## 🎮 How to Use
 
@@ -96,17 +99,25 @@ python gif_maker.py
 - Confirm your selection when satisfied
 
 ### 2. Configure Settings
-- **Screenshot Count**: Number of frames (1-100 recommended)
-- **Interval**: Time between screenshots (0.1-10.0 seconds)
+- **Screenshot Count**: Number of frames (1-1000, validated automatically)
+- **Interval**: Time between screenshots (0.1-60.0 seconds, validated automatically)
 - **Quality**: Choose from Low/Medium/High/MAX settings
 - **Playback Speed**: Adjust final GIF animation speed
 - **Output File**: Name and location for the generated GIF
 
 ### 3. Record & Create
-- Click **"Start Recording"** to begin capturing
+- Click **"Start Recording"** (or press `Space`) to begin capturing
 - The window will hide automatically during recording
-- Click **"Create GIF"** to generate the animated GIF
+- Press `Escape` to cancel recording if needed
+- Click **"Create GIF"** (or press `Ctrl+S`) to generate the animated GIF
+- File size estimation is shown before creation
 - Use the preview panel to review your results
+
+### Keyboard Shortcuts
+- **`Space`**: Start/Stop recording
+- **`Escape`**: Cancel active recording
+- **`Ctrl+S`**: Create GIF
+- **`Ctrl+C`**: Clear all screenshots
 
 ## ⚙️ Quality Settings Explained
 
@@ -203,9 +214,27 @@ gifmaker_python/
 - Ensure source content has good contrast
 - Try different quality levels to find the best balance
 
-## 🎉 What's New in V1.0
+## 🎉 What's New
 
-### Major Features
+### Version 1.0.1 - Code Quality Improvements (December 2024)
+
+#### User Experience
+- ✅ **Keyboard Shortcuts**: Space (record), Escape (cancel), Ctrl+S (create GIF), Ctrl+C (clear)
+- ✅ **File Size Estimation**: Preview estimated GIF size before creation
+- ✅ **Better Error Messages**: Enhanced with actionable tips and context
+- ✅ **Input Validation**: Automatic validation with helpful feedback
+- ✅ **Cross-Platform File Opening**: Works on Windows, macOS, and Linux
+
+#### Code Quality
+- ✅ **Type Safety**: Comprehensive type hints for all methods
+- ✅ **Constants Management**: All hard-coded values extracted to named constants
+- ✅ **Enhanced Documentation**: Google-style docstrings for all methods
+- ✅ **Thread Safety**: Proper synchronization to prevent concurrent recording
+- ✅ **Memory Management**: Explicit cleanup of image resources
+
+### Version 1.0.0 - Initial Release
+
+#### Major Features
 - ✅ **Professional GUI**: Modern, intuitive interface design
 - ✅ **Visual Region Selection**: Click-and-drag with real-time feedback
 - ✅ **Advanced Quality Control**: Multiple quality levels with optimization
@@ -214,7 +243,7 @@ gifmaker_python/
 - ✅ **Customizable Playback**: Adjustable animation speed
 - ✅ **Clean Recording**: Auto-hide window during capture
 
-### Technical Improvements
+#### Technical Improvements
 - ✅ **Color Optimization**: Advanced dithering and palette algorithms
 - ✅ **Gradient Handling**: Special processing for smooth gradients
 - ✅ **Error Handling**: Robust error recovery and user feedback
@@ -230,10 +259,18 @@ See `ai_suggestions.md` for planned features including:
 - Cloud integration
 - And much more!
 
+## 📚 Documentation
+
+For detailed technical documentation, see:
+- **[Architecture Documentation](DOCS/ARCHITECTURE.md)**: System design, component structure, and data flow
+- **[Style Guide](DOCS/STYLE_GUIDE.md)**: Coding standards, conventions, and best practices
+- **[Changelog](CHANGELOG.md)**: Version history and feature updates
+- **[Project Summary](SUMMARY.md)**: High-level project overview
+
 ## 🔬 Technical Deep Dive
 
 ### Architecture Overview
-Gif-Maker is built with a modular architecture that separates concerns while maintaining simplicity:
+Gif-Maker is built with a single-file architecture that separates concerns while maintaining simplicity:
 
 ```python
 class GIFMaker:
