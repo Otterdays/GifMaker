@@ -1,5 +1,7 @@
 # 🧠 Gif-Maker Development Scratchpad
-*Version 0.01 - December 2024*
+*Version 0.02 - 2025-03-12*
+
+> **Primary**: See [DOCS/SCRATCHPAD.md](DOCS/SCRATCHPAD.md) for active tasks.
 
 ## 🎯 Project Overview
 

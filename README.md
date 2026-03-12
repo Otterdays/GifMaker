@@ -262,10 +262,12 @@ See `ai_suggestions.md` for planned features including:
 ## 📚 Documentation
 
 For detailed technical documentation, see:
-- **[Architecture Documentation](DOCS/ARCHITECTURE.md)**: System design, component structure, and data flow
-- **[Style Guide](DOCS/STYLE_GUIDE.md)**: Coding standards, conventions, and best practices
-- **[Changelog](CHANGELOG.md)**: Version history and feature updates
-- **[Project Summary](SUMMARY.md)**: High-level project overview
+- **[Architecture](DOCS/ARCHITECTURE.md)**: System design, component structure, data flow
+- **[Style Guide](DOCS/STYLE_GUIDE.md)**: Coding standards, conventions, best practices
+- **[Project Summary](DOCS/SUMMARY.md)**: High-level overview, quick links
+- **[SBOM](DOCS/SBOM.md)**: Package security tracking
+- **[Scratchpad](DOCS/SCRATCHPAD.md)**: Active tasks, blockers
+- **[Changelog](CHANGELOG.md)**: Version history
 
 ## 🔬 Technical Deep Dive
 

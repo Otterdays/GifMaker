@@ -1,5 +1,30 @@
 # Gif-Maker V1.0 - Changelog
 
+## Version 1.0.2 - Docs, Modernization, Refactor (2025-03-12)
+
+### 📚 Documentation
+- Added DOCS/ structure per project rules: SUMMARY.md, SBOM.md, SCRATCHPAD.md
+- Created SBOM for package security tracking
+- Updated README doc links
+
+### 🔧 Code Quality
+- Removed duplicate code in `start_recording`
+- Fixed quality check: `"High"` → `.startswith("High")` for "High (80%)" value
+- Added COLOR_BROWSE constant, removed hardcoded color
+- Replaced `unbind_all` with widget-specific `unbind` in overlay cleanup
+- Removed redundant PIL imports from methods
+- Replaced `print()` in select_browser_size with log
+
+### 📦 Dependencies
+- Pillow: 10.0.1 → >=10.4.0,<12 (security updates)
+- pyautogui: pinned → >=0.9.54
+
+### 🎨 GUI
+- ttk.Style: clam theme, progress bar colors
+- Improved padding (24px), LabelFrame font weight
+
+---
+
 ## Version 1.0.1 - Code Quality Improvements
 *Released: December 2024*
 

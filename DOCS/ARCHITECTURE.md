@@ -1,6 +1,6 @@
 # Gif-Maker Architecture Documentation
 
-*Version 1.0.1 - December 2024*
+*Version 1.0.2 - 2025-03-12* (docs refresh)
 
 ## Overview
 

@@ -10,7 +10,7 @@ from tkinter import ttk, messagebox, filedialog
 import pyautogui
 import time
 import os
-from PIL import Image, ImageTk
+from PIL import Image, ImageFilter, ImageTk
 import threading
 from datetime import datetime
 import subprocess
@@ -42,6 +42,7 @@ COLOR_ACCENT_YELLOW = '#f39c12'
 COLOR_TEXT_WHITE = 'white'
 COLOR_TEXT_LIGHT = '#bdc3c7'
 COLOR_TEXT_LIGHTBLUE = 'lightblue'
+COLOR_BROWSE = '#95a5a6'
 
 # Timing Constants
 WINDOW_HIDE_DELAY = 0.5
@@ -104,6 +105,17 @@ class GIFMaker:
         
     def create_widgets(self) -> None:
         """Create and configure all GUI widgets."""
+        # Modern ttk styling
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure(
+            'TFrame', background=COLOR_BG_SECONDARY,
+        )
+        style.configure(
+            'TProgressbar',
+            troughcolor=COLOR_BG_PRIMARY,
+            background=COLOR_ACCENT_GREEN,
+        )
         # Title
         title_label = tk.Label(
             self.root, 
@@ -115,7 +127,7 @@ class GIFMaker:
         title_label.pack(pady=10)
         
         # Main frame with side panel
-        main_frame = tk.Frame(self.root, bg=COLOR_BG_SECONDARY, padx=20, pady=20)
+        main_frame = tk.Frame(self.root, bg=COLOR_BG_SECONDARY, padx=24, pady=24)
         main_frame.pack(fill="both", expand=True)
         
         # Create left and right panels
@@ -127,8 +139,12 @@ class GIFMaker:
         right_panel.pack_propagate(False)  # Prevent shrinking
         
         # Region selection frame
-        region_frame = tk.LabelFrame(left_panel, text="📐 Region Selection", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY)
-        region_frame.pack(fill="x", pady=(0, 10))
+        region_frame = tk.LabelFrame(
+            left_panel, text="📐 Region Selection",
+            fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY,
+            font=("Arial", 10, "bold")
+        )
+        region_frame.pack(fill="x", pady=(0, 12))
         
         # Region selection buttons
         button_frame = tk.Frame(region_frame, bg=COLOR_BG_SECONDARY)
@@ -170,8 +186,12 @@ class GIFMaker:
         self.region_label.pack()
         
         # Settings frame
-        settings_frame = tk.LabelFrame(left_panel, text="⚙️ Settings", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY)
-        settings_frame.pack(fill="x", pady=(0, 10))
+        settings_frame = tk.LabelFrame(
+            left_panel, text="⚙️ Settings",
+            fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY,
+            font=("Arial", 10, "bold")
+        )
+        settings_frame.pack(fill="x", pady=(0, 12))
         
         # Screenshot count
         tk.Label(settings_frame, text="Number of Screenshots:", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY).grid(row=0, column=0, sticky="w", padx=10, pady=5)
@@ -231,7 +251,7 @@ class GIFMaker:
             settings_frame, 
             text="Browse", 
             command=self.browse_output,
-            bg="#95a5a6",
+            bg=COLOR_BROWSE,
             fg=COLOR_TEXT_WHITE
         ).grid(row=2, column=2, padx=5, pady=5)
         
@@ -292,7 +312,7 @@ class GIFMaker:
         
         # Progress bar
         self.progress = ttk.Progressbar(status_frame, mode='determinate')
-        self.progress.pack(fill="x", padx=10, pady=5)
+        self.progress.pack(fill="x", padx=10, pady=8)
         
         # Status text
         self.status_text = tk.Text(
@@ -486,8 +506,6 @@ class GIFMaker:
         # Display current image
         current_image = self.preview_images[self.current_preview_index]
         
-        # Convert to PhotoImage for display
-        from PIL import ImageTk
         photo = ImageTk.PhotoImage(current_image)
         self.preview_label.config(image=photo, text="")
         self.preview_label.image = photo  # Keep a reference
@@ -976,11 +994,12 @@ class GIFMaker:
                 # Unbind events to prevent memory leaks
                 if hasattr(self, 'region_canvas'):
                     try:
-                        self.region_canvas.unbind_all('<Button-1>')
-                        self.region_canvas.unbind_all('<B1-Motion>')
-                        self.region_canvas.unbind_all('<ButtonRelease-1>')
+                        self.region_canvas.unbind('<Button-1>')
+                        self.region_canvas.unbind('<B1-Motion>')
+                        self.region_canvas.unbind('<ButtonRelease-1>')
+                        self.region_canvas.unbind('<Escape>')
                     except Exception:
-                        pass  # Events may already be unbound
+                        pass
                 self.region_overlay.destroy()
             except Exception as e:
                 self.log(f"Error closing overlay: {e}")
@@ -1015,21 +1034,11 @@ class GIFMaker:
         centered on the screen. Falls back to manual selection if needed.
         """
         self.log("Selecting common browser window size...")
-        
-        # Hide main window
         self.root.withdraw()
         time.sleep(WINDOW_HIDE_DELAY)
         
         try:
-            # Get screen size
             screen_width, screen_height = pyautogui.size()
-            
-            print("\n" + "="*60)
-            print("BROWSER WINDOW DETECTION")
-            print("="*60)
-            print("This will try to find your browser window automatically.")
-            print("If it doesn't work, use 'Manual Coordinates' instead.")
-            print("="*60)
             
             # Try to find browser window by looking for common patterns
             # This is a simple approach - look for a reasonable window size
@@ -1044,16 +1053,12 @@ class GIFMaker:
             self.region_label.config(text=f"Region: Browser Size ({browser_width}x{browser_height})")
             self.log(f"Browser size selected: {browser_width}x{browser_height} at ({x},{y})")
             
-            print(f"\n✅ Browser region selected: {x},{y} {browser_width}x{browser_height}")
-            print("If this doesn't capture your browser correctly, use 'Manual Coordinates'")
-            
         except Exception as e:
             error_msg = (
                 f"Browser size selection error: {e}\n"
                 f"Tip: Use 'Manual Coordinates' to select your browser window manually."
             )
             self.log(error_msg)
-            print(f"\n❌ Error: {e}")
         finally:
             # Show main window again
             self.root.deiconify()
@@ -1100,15 +1105,9 @@ class GIFMaker:
         if not is_valid:
             messagebox.showerror("Error", error_msg or "Invalid settings!")
             return
-            
-        self.is_recording = True
-        self.record_button.config(text="⏹️ Stop Recording", bg="#e74c3c")
-        self.create_button.config(state="disabled")
-        
-        # Get validated values
+
         self.screenshot_count = int(self.count_var.get())
         self.interval = float(self.interval_var.get())
-        
         self.is_recording = True
         self.record_button.config(text="⏹️ Stop Recording", bg=COLOR_ACCENT_RED)
         self.create_button.config(state="disabled")
@@ -1286,9 +1285,7 @@ class GIFMaker:
                     screenshot = screenshot.convert('RGB')
                 
                 # For High quality, apply noise reduction instead of blur
-                if self.quality_var.get() == "High":
-                    # Apply noise reduction to smooth gradients without losing detail
-                    from PIL import ImageFilter
+                if self.quality_var.get().startswith("High"):
                     screenshot = screenshot.filter(ImageFilter.MedianFilter(size=3))
                 
                 processed_screenshots.append(screenshot)
@@ -1329,17 +1326,11 @@ class GIFMaker:
             # Create GIF with optimized color settings
             if quality_setting.startswith("MAX"):
                 # MAX quality: Refined optimization for 100% quality with minimal impurities
-                from PIL import Image
-                
-                # For MAX quality, use refined processing to minimize artifacts
                 self.log_thread_safe("MAX quality processing - this may take a moment...")
                 quantized_images = []
                 total_frames = len(processed_screenshots)
                 for i, img in enumerate(processed_screenshots):
                     try:
-                        # Apply refined sharpening with better parameters
-                        from PIL import ImageFilter
-                        # More conservative sharpening to reduce artifacts
                         sharpened = img.filter(ImageFilter.UnsharpMask(radius=0.8, percent=120, threshold=2))
                         
                         # Use optimized quantization with better color preservation
@@ -1375,10 +1366,6 @@ class GIFMaker:
                     dither=1  # Floyd-Steinberg dithering for smooth gradients
                 )
             elif quality_setting.startswith("High"):
-                # For HIGH quality, use a different approach to avoid banding
-                # Create a quantized version first, then save
-                from PIL import Image
-                
                 # Quantize all images to the same palette to ensure consistency
                 quantized_images = []
                 for img in processed_screenshots:

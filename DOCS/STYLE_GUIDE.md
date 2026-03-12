@@ -540,5 +540,5 @@ def validate_settings(self) -> Tuple[bool, Optional[str]]:
 
 ---
 
-**Last Updated**: December 2024  
-**Version**: 1.0.1
+**Last Updated**: 2025-03-12  
+**Version**: 1.0.2

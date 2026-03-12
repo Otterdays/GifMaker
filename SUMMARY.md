@@ -1,5 +1,7 @@
 # 📋 Gif-Maker Project Summary
-*Last Updated: December 2024*
+*Last Updated: 2025-03-12*
+
+> **Primary**: See [DOCS/SUMMARY.md](DOCS/SUMMARY.md) for canonical summary and quick links.
 
 ## 🎯 Project Overview
 
