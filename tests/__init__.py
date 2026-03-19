@@ -1,0 +1,1 @@
+# GifMaker test package

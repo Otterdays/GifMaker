@@ -1,6 +1,8 @@
+<!-- PRESERVATION RULE: Never delete or replace content. Append or annotate only. -->
+
 # Gif-Maker Project Summary
 
-*Last Updated: 2025-03-12*
+*Last Updated: 2025-03-19*
 
 ## Quick Links
 
@@ -9,6 +11,7 @@
 - [SBOM](SBOM.md) - Security/package tracking
 - [SCRATCHPAD](SCRATCHPAD.md) - Active tasks, blockers
 - [CHANGELOG](../CHANGELOG.md) - Version history
+- [tests/](../tests/) - Unit tests (`python -m pytest tests/`)
 
 ---
 
@@ -27,14 +30,16 @@ Transform multi-tool GIF creation into a single, intuitive application.
 
 ## Technical Stack
 
-- Python 3.7+ | tkinter | pyautogui | Pillow | threading
+- Python 3.8+ | tkinter | pyautogui | Pillow | threading | pytest (dev)
 
 ## Project Structure
 
 ```
 GifMaker/
-├── gif_maker.py          # Main application
+├── gif_maker/            # Main application package (gui/, core/, utils/)
+├── tests/                # Unit tests
 ├── requirements.txt
+├── pyproject.toml
 ├── install.bat / launch.bat
 ├── DOCS/
 │   ├── SUMMARY.md        # This file
@@ -48,9 +53,10 @@ GifMaker/
 
 ## Current Status
 
-- **Version**: 1.0.1
+- **Version**: 1.0.3
 - **Status**: Production Ready
 - **Platform**: Windows (primary), macOS/Linux compatible
+- **Tests**: 20 unit tests (`python -m pytest tests/`)
 
 ---
 

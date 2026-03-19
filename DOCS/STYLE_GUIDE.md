@@ -1,6 +1,8 @@
+<!-- PRESERVATION RULE: Never delete or replace content. Append or annotate only. -->
+
 # Gif-Maker Style Guide
 
-*Version 1.0.1 - December 2024*
+*Version 1.0.3 - 2025-03-19*
 
 ## Overview
 
@@ -48,8 +50,9 @@ from tkinter import ttk, messagebox, filedialog
 from PIL import Image, ImageTk
 import pyautogui
 
-# Local (if any)
-# (none currently - single file architecture)
+# Local (package structure as of v1.0.3)
+from gif_maker.core.quality_engine import validate_settings_logic, parse_quality_params
+from gif_maker.core.constants import MIN_REGION_SIZE
 ```
 
 ---
@@ -540,5 +543,5 @@ def validate_settings(self) -> Tuple[bool, Optional[str]]:
 
 ---
 
-**Last Updated**: 2025-03-12  
-**Version**: 1.0.2
+**Last Updated**: 2025-03-19  
+**Version**: 1.0.3

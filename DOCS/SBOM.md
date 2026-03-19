@@ -1,3 +1,5 @@
+<!-- PRESERVATION RULE: Never delete or replace content. Append or annotate only. -->
+
 # Gif-Maker Software Bill of Materials (SBOM)
 
 *Security tracking - update on every package install/remove*
@@ -14,11 +16,18 @@
 - **pyautogui** pulls: pyscreeze, pygetwindow, pytweening, pymsgbox (Windows)
 - **Pillow** pulls: none (optional: libjpeg, zlib for formats)
 
+## Dev Dependencies
+
+| Package | Version | Purpose | License | Audit |
+|---------|---------|---------|---------|-------|
+| pytest | >=7.0 | Unit testing | MIT | OK |
+
 ## Audit Notes
 
 - Pillow 11.0.0: Security updates over 10.0.1, Python 3.8+ supported
 - pyautogui 0.9.54: Latest stable, cross-platform
+- pytest: Dev-only, not shipped
 
 ---
 
-*Last Updated: 2025-03-12*
+*Last Updated: 2025-03-19*

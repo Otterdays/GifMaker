@@ -24,6 +24,6 @@ if errorlevel 1 (
 )
 
 REM Launch the application
-python gif_maker.py
+python -m gif_maker
 
 pause

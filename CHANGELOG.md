@@ -1,5 +1,40 @@
 # Gif-Maker V1.0 - Changelog
 
+## Version 1.0.3 - Package Modernization (2025-03-19)
+
+### Documentation
+- Added PRESERVATION RULE header to all DOCS (SUMMARY, SCRATCHPAD, ARCHITECTURE, STYLE_GUIDE, SBOM)
+- Updated ARCHITECTURE with [AMENDED] package structure and design decisions
+- Updated STYLE_GUIDE import example for package layout
+- Updated README: Testing section, version 1.0.3, Python 3.8+, editable install
+- Updated SUMMARY: version, tests link, technical stack
+
+### Package Structure
+- Split monolithic `gif_maker.py` into `gif_maker/` package
+- `gif_maker/gui/main_window.py` - GUI and event handling
+- `gif_maker/core/quality_engine.py` - Settings validation, quality/speed mapping
+- `gif_maker/core/gif_creator.py` - GIF encoding logic
+- `gif_maker/core/constants.py` - Shared constants
+- `gif_maker/utils/image_utils.py` - Thumbnail generation
+
+### Testing
+- Added pytest with 20 unit tests for settings logic
+- Tests: `validate_settings_logic`, `estimate_gif_size_logic`, `parse_speed_frame_duration`, `parse_quality_params`
+
+### Packaging
+- Added `pyproject.toml` with console script entrypoint `gif-maker`
+- Launch: `python -m gif_maker` or `gif-maker` after `pip install -e .`
+- Updated `launch.bat` to use `python -m gif_maker`
+
+### Thread Safety
+- All Tk widget updates from worker threads use `root.after(0, ...)`
+- Recording and GIF creation remain non-blocking
+
+### Quality/Speed Mapping
+- Centralized in `quality_engine.py`; no ad hoc string parsing
+
+---
+
 ## Version 1.0.2 - Docs, Modernization, Refactor (2025-03-12)
 
 ### 📚 Documentation

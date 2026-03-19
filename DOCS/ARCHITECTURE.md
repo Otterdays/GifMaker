@@ -1,10 +1,12 @@
+<!-- PRESERVATION RULE: Never delete or replace content. Append or annotate only. -->
+
 # Gif-Maker Architecture Documentation
 
-*Version 1.0.2 - 2025-03-12* (docs refresh)
+*Version 1.0.3 - 2025-03-19* [AMENDED: package structure]
 
 ## Overview
 
-Gif-Maker is a single-file Python GUI application built with tkinter, pyautogui, and Pillow. This document describes the system architecture, component design, data flow, and technical decisions.
+Gif-Maker is a Python GUI application built with tkinter, pyautogui, and Pillow. As of v1.0.3 it uses a modular package structure (`gif_maker/` with gui/, core/, utils/). This document describes the system architecture, component design, data flow, and technical decisions.
 
 ## Table of Contents
 
@@ -54,7 +56,7 @@ Gif-Maker is a single-file Python GUI application built with tkinter, pyautogui,
 
 ### Architecture Principles
 
-1. **Single-File Design**: All functionality in one file for simplicity
+1. **Package Design** [AMENDED 2025-03-19]: Modular `gif_maker/` package (gui/, core/, utils/) for testability and maintainability
 2. **Class-Based**: Object-oriented design with clear separation of concerns
 3. **Event-Driven**: GUI responds to user events and background operations
 4. **Thread-Safe**: Proper synchronization for concurrent operations
@@ -521,12 +523,12 @@ def clear_screenshots(self) -> None:
 
 ## Design Decisions
 
-### Why Single-File Architecture?
+### Why Single-File Architecture? [AMENDED 2025-03-19: Now package-based]
 
-- **Simplicity**: Easy to understand and maintain
-- **Portability**: Single file to distribute
+- **Simplicity**: Easy to understand and maintain *(historical; v1.0.3 uses package for testability)*
+- **Portability**: Single file to distribute *(now: `python -m gif_maker` or `gif-maker` entrypoint)*
 - **No Dependencies**: Beyond standard libraries
-- **Quick Development**: No module management overhead
+- **Quick Development**: No module management overhead *(package adds minimal overhead; tests justify it)*
 
 ### Why tkinter?
 
@@ -570,31 +572,32 @@ def clear_screenshots(self) -> None:
 
 ## Future Architecture Considerations
 
-### Potential Modularization
+### Package Structure [AMENDED 2025-03-19 - Implemented]
 
-If the codebase grows, consider splitting into:
+Current layout (as of v1.0.3):
 
 ```
 gif_maker/
-├── __init__.py
+├── __init__.py          # Re-exports main, GIFMaker, testable helpers
+├── __main__.py          # python -m gif_maker
 ├── main.py              # Entry point
 ├── gui/
-│   ├── main_window.py
-│   ├── preview_panel.py
-│   └── region_selector.py
+│   └── main_window.py   # GIFMaker class, region selection, preview
 ├── core/
-│   ├── recorder.py
-│   ├── gif_creator.py
-│   └── quality_engine.py
+│   ├── constants.py     # Shared constants
+│   ├── quality_engine.py  # Validation, quality/speed mapping
+│   └── gif_creator.py   # GIF encoding
 └── utils/
-    └── image_utils.py
+    └── image_utils.py   # Thumbnail generation
 ```
+
+### Previous: Potential Modularization (pre-v1.0.3)
+
+If the codebase grows, consider splitting into: `gif_maker/gui/main_window.py`, `preview_panel.py`, `region_selector.py`, `core/recorder.py`, `gif_creator.py`, `quality_engine.py`, `utils/image_utils.py`. *[Note: Package structure implemented in v1.0.3; preview_panel and region_selector remain in main_window for now.]*
 
 ### Current Status
 
-- **Single-file design** works well for current scope
-- **No immediate need** for modularization
-- **Easy to refactor** if requirements change
+- **Package design** implemented; tests in `tests/`; `python -m pytest tests/` for regression
 
 ---
 
@@ -607,6 +610,6 @@ gif_maker/
 
 ---
 
-**Last Updated**: December 2024  
-**Version**: 1.0.1  
+**Last Updated**: 2025-03-19  
+**Version**: 1.0.3  
 **Maintainer**: AfyKirby1

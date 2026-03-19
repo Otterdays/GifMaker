@@ -1,7 +1,7 @@
 # 🎬 Gif-Maker V1.0
 
 [![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
-[![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Windows](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 
 A professional Python GUI application for creating high-quality animated GIFs with advanced region selection, customizable quality settings, and real-time preview capabilities.
@@ -44,7 +44,16 @@ pip install -r requirements.txt
 launch.bat
 
 # Or manually
-python gif_maker.py
+python -m gif_maker
+
+# Or after editable install (pip install -e .)
+gif-maker
+```
+
+### 3. Run Tests
+```bash
+pip install pytest  # or: pip install -e ".[dev]"
+python -m pytest tests/ -v
 ```
 
 ## ✨ Key Features
@@ -153,17 +162,23 @@ python gif_maker.py
 
 ## 🛠️ Technical Requirements
 
-- **Python 3.7+**
+- **Python 3.8+**
 - **pyautogui**: For screenshot capture and mouse control
 - **Pillow (PIL)**: For advanced image processing and GIF creation
 - **tkinter**: For GUI interface (included with Python)
+- **pytest** (dev): For unit tests (`pip install pytest` or `pip install -e ".[dev]"`)
 
 ## 📁 Project Structure
 
 ```
-gifmaker_python/
-├── gif_maker.py          # Main application (Gif-Maker V1.0)
+GifMaker/
+├── gif_maker/            # Main application package
+│   ├── gui/              # GUI components
+│   ├── core/             # Recording, GIF creation, quality engine
+│   └── utils/            # Image utilities
+├── tests/                # Unit tests
 ├── requirements.txt      # Python dependencies
+├── pyproject.toml       # Project config and entrypoint
 ├── install.bat          # Dependency installer
 ├── launch.bat           # Application launcher
 ├── ai_suggestions.md    # Future enhancement ideas
@@ -216,6 +231,13 @@ gifmaker_python/
 
 ## 🎉 What's New
 
+### Version 1.0.3 - Package Modernization (March 2025)
+
+- **Package structure**: `gif_maker/` with gui/, core/, utils/ modules
+- **Unit tests**: 20 pytest tests for settings validation and quality/speed mapping
+- **Launch**: `python -m gif_maker` or `gif-maker` after editable install
+- **Thread safety**: All UI updates from worker threads use `root.after()`
+
 ### Version 1.0.1 - Code Quality Improvements (December 2024)
 
 #### User Experience
@@ -259,6 +281,16 @@ See `ai_suggestions.md` for planned features including:
 - Cloud integration
 - And much more!
 
+## 🧪 Testing
+
+Run the test suite:
+
+```bash
+python -m pytest tests/ -v
+```
+
+Tests cover: `validate_settings_logic`, `estimate_gif_size_logic`, `parse_speed_frame_duration`, `parse_quality_params`.
+
 ## 📚 Documentation
 
 For detailed technical documentation, see:
@@ -272,7 +304,7 @@ For detailed technical documentation, see:
 ## 🔬 Technical Deep Dive
 
 ### Architecture Overview
-Gif-Maker is built with a single-file architecture that separates concerns while maintaining simplicity:
+Gif-Maker is built with a modular package architecture (gui/, core/, utils/) that separates concerns:
 
 ```python
 class GIFMaker:
@@ -337,24 +369,29 @@ self.gif_thread.start()
 - **GIF Creation**: 2-30 seconds depending on quality and frame count
 - **Success Rate**: 100% - all operations complete successfully
 
-## 📁 Project Structure
+## 📁 Project Structure (detailed)
 
 ```
-gifmaker_python/
-├── gif_maker.py          # Main application (1,184 lines)
-├── requirements.txt      # Python dependencies
+GifMaker/
+├── gif_maker/            # Main application package
+│   ├── gui/main_window.py
+│   ├── core/recorder.py, gif_creator.py, quality_engine.py
+│   └── utils/image_utils.py
+├── tests/               # Unit tests
+├── requirements.txt     # Python dependencies
+├── pyproject.toml       # Project config and entrypoint
 ├── install.bat          # Windows dependency installer
 ├── launch.bat           # Windows application launcher
 ├── README.md            # This comprehensive documentation
 ├── CHANGELOG.md         # Detailed version history
 ├── ai_suggestions.md    # Future enhancement roadmap
-├── SCRATCHPAD.md        # Development notes and insights
+├── DOCS/                # Architecture, style guide, SBOM
 ├── LICENSE              # MIT License
-└── .gitignore          # Git ignore rules
+└── .gitignore           # Git ignore rules
 ```
 
 ### Code Organization
-- **Single File Design**: All functionality in `gif_maker.py` for simplicity
+- **Package Design**: `gif_maker/` package with gui/, core/, and utils/ modules
 - **Class-Based Architecture**: `GIFMaker` class encapsulates all functionality
 - **Method Separation**: Each major feature has dedicated methods
 - **Error Handling**: Comprehensive try-catch blocks throughout
