@@ -6,7 +6,7 @@ from typing import List, Tuple
 import pytest
 from PIL import Image
 
-from gif_maker.core.gif_creator import create_gif
+from gif_maker.core.gif_creator import EncodeCancelled, create_gif
 
 
 def _rgb(
@@ -69,3 +69,35 @@ class TestCreateGif:
             lambda m: None,
         )
         assert (tmp_path / "clip.gif").is_file()
+
+    def test_cancel_mid_encode_raises(self, tmp_path: Path) -> None:
+        out = tmp_path / "cancel.gif"
+        frames = [_rgb(size=(32, 32)) for _ in range(8)]
+        calls = {"n": 0}
+
+        def cancel_after_two() -> bool:
+            calls["n"] += 1
+            return calls["n"] > 2
+
+        with pytest.raises(EncodeCancelled):
+            create_gif(
+                frames,
+                str(out),
+                "MAX (100%)",
+                "Normal (5 FPS)",
+                lambda _m: None,
+                cancel_check=cancel_after_two,
+            )
+        assert not out.exists()
+
+    def test_cancel_check_none_still_works(self, tmp_path: Path) -> None:
+        out = tmp_path / "ok.gif"
+        create_gif(
+            [_rgb()],
+            str(out),
+            "Medium (85%)",
+            "Normal (5 FPS)",
+            lambda _m: None,
+            cancel_check=None,
+        )
+        assert out.is_file()

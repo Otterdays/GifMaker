@@ -2,7 +2,7 @@
 
 # Gif-Maker Project Summary
 
-*Last Updated: 2026-09-10* [AMENDED: P2 polish partial → v1.0.7]
+*Last Updated: 2026-09-10* [AMENDED: simplified timing UX → v1.0.9]
 
 ## Quick Links
 
@@ -57,17 +57,25 @@ GifMaker/
 
 ## Current Status
 
-- **Version**: 1.0.7
-- **Status**: Production Ready (P2 polish partial 2026-09-10)
+- **Version**: 1.0.9
+- **Status**: Production Ready (simplified timing UX 2026-09-10)
 - **Platform**: Windows (primary), macOS/Linux compatible
-- **Tests**: 45 unit tests (`python -m pytest tests/`) — last run: all pass
+- **Tests**: 62 unit tests (`python -m pytest tests/`) — last run: all pass
 - **Security**: Pillow pin raised to `>=12.3.0,<13`; `pip-audit` clean on direct deps
 - **SBOM**: Full inventory pass 2026-09-10b (transitive versions/licenses + audit how-to) — see [SBOM.md](SBOM.md)
+
+### [AMENDED 2026-09-10] Simplified timing (v1.0.9)
+- Capture rate + Playback feel (true 1× Match recording); quality engine still drives look
+- Prior: P2 complete in v1.0.8 (cancel encode, Pick Window)
+
+### [AMENDED 2026-09-10] P2 complete (v1.0.8)
+- Cancel mid-encode; Pick Window (pygetwindow); explicit `pygetwindow` pin
+- Prior partial (v1.0.7): settings persist, version SSOT, region_math/tests
 
 ### [AMENDED 2026-09-10] P2 polish partial (v1.0.7)
 - Persist region/settings (`~/.gifmaker/settings.json`); UI version SSOT; region_math helpers
 - New tests: settings_store, region_math, image_utils / quality paths
-- Deferred: cancel mid-encode, real window picker
+- Deferred: cancel mid-encode, real window picker *[AMENDED: shipped in 1.0.8]*
 
 ### [AMENDED 2026-09-10] P0 reliability (v1.0.5)
 - Frame-list lock/snapshot; atomic GIF save; overwrite confirm; safe window close

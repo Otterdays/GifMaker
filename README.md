@@ -102,22 +102,21 @@ python -m pytest tests/ -v
 ## 🎮 How to Use
 
 ### 1. Region Selection
-- Click **"Select Browser Window Region"**
-- Drag to select the area you want to capture
-- Use the crosshair cursor for precise selection
+- Click **"Manual Coordinates"**, **"Full Screen"**, or **"Pick Window"**
+- Drag to select the area you want to capture (manual), or pick a real OS window
 - Confirm your selection when satisfied
 
 ### 2. Configure Settings
-- **Screenshot Count**: Number of frames (1-1000, validated automatically)
-- **Interval**: Time between screenshots (0.1-60.0 seconds, validated automatically)
-- **Quality**: Choose from Low/Medium/High/MAX settings
-- **Playback Speed**: Adjust final GIF animation speed
+- **Screenshot Count**: Number of frames (1-1000)
+- **Capture rate**: How often to grab frames (2 / 5 / 8 / 10 FPS)
+- **Playback feel**: Match recording (1× realtime), Faster, Slower, Slow-mo, or Demo polish
+- **Quality**: High (everyday), MAX (pro demos), Medium/Low (smaller files)
 - **Output File**: Name and location for the generated GIF
 
 ### 3. Record & Create
 - Click **"Start Recording"** (or press `Space`) to begin capturing
 - The window will hide automatically during recording
-- Press `Escape` to cancel recording if needed
+- Press `Escape` to cancel recording (or cancel encode if creating GIF)
 - Click **"Create GIF"** (or press `Ctrl+S`) to generate the animated GIF
 - File size estimation is shown before creation
 - Use the preview panel to review your results

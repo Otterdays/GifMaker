@@ -1,5 +1,44 @@
 # Gif-Maker V1.0 - Changelog
 
+## Version 1.0.9 - Simplified capture / playback timing (2026-09-10)
+
+### UX
+- Replaced raw **Interval** + disconnected **Playback Speed** with:
+  - **Capture rate** (2 / 5 / 8 / 10 FPS)
+  - **Playback feel**: Match recording (1×) | Faster | Slower | Slow-mo | Demo polish
+- Live tip: `Capture N FPS → GIF ~X FPS (Yms/frame)`
+- Default: **5 FPS** capture + **Match recording (1×)** + **High** quality
+
+### Engine
+- `resolve_frame_duration_ms`, `parse_capture_fps`, `describe_timing` in `quality_engine`
+- `create_gif(..., frame_duration_ms=)` override for true 1× realtime
+
+### Testing
+- `tests/test_timing_controls.py`; settings_store updated for new fields
+- Suite: **62** pytest tests passed
+
+### Packaging
+- Version bump: **1.0.9**
+
+---
+
+## Version 1.0.8 - P2 finish: cancel encode + window picker (2026-09-10)
+
+### Features
+- **Cancel mid-encode**: `cancel_check` in `create_gif`; Cancel Encode button; Escape while encoding; close dialog cancels then exits
+- **Pick Window**: real OS window list via `pygetwindow` (replaces fake "Common Browser Size")
+- New `utils/window_picker.py` + `EncodeCancelled`
+
+### Testing
+- Cancel mid-encode tests; window filter tests
+- Suite: **53** pytest tests passed
+
+### Packaging / deps
+- Explicit runtime dep: `pygetwindow>=0.0.9` (was transitive via pyautogui)
+- Version bump: **1.0.8**
+
+---
+
 ## Version 1.0.7 - P2 system polish (partial) (2026-09-10)
 
 ### Settings / UX

@@ -36,15 +36,25 @@ from gif_maker.core.constants import (
     WINDOW_HIDE_DELAY_MS,
     WINDOW_WIDTH,
 )
-from gif_maker.core.gif_creator import create_gif
-from gif_maker.core.quality_engine import estimate_gif_size_logic, validate_settings_logic
+from gif_maker.core.gif_creator import EncodeCancelled, create_gif
+from gif_maker.core.quality_engine import (
+    PLAYBACK_FEEL_LABELS,
+    PLAYBACK_FEEL_MATCH,
+    describe_timing,
+    estimate_gif_size_logic,
+    fps_to_interval,
+    interval_to_nearest_capture_label,
+    parse_capture_fps,
+    resolve_frame_duration_ms,
+    validate_settings_logic,
+)
 from gif_maker.utils.image_utils import make_thumbnail
 from gif_maker.utils.region_math import (
-    center_region,
     is_region_large_enough,
     selection_to_region,
 )
 from gif_maker.utils.settings_store import load_settings, save_settings
+from gif_maker.utils.window_picker import WindowInfo, list_capturable_windows
 from gif_maker.version import __version__
 
 
@@ -65,8 +75,11 @@ class GIFMaker:
         self._lock = threading.Lock()
         self._recording_active = False
         self._encoding_active = False
+        self._encode_cancel = threading.Event()
         self.recording_thread: Optional[threading.Thread] = None
         self.gif_thread: Optional[threading.Thread] = None
+        self._window_picker: Optional[tk.Toplevel] = None
+        self._picked_windows: List[WindowInfo] = []
 
         # Center the window on screen
         self.center_window()
@@ -139,20 +152,22 @@ class GIFMaker:
         if encoding:
             if not messagebox.askokcancel(
                 "GIF encode in progress",
-                "Wait for encode to finish, then exit?\n"
+                "Cancel encode and exit?\n"
+                "OK cancels encode (partial file discarded), then closes.\n"
                 "Cancel keeps the window open.",
             ):
                 return
+            self.request_encode_cancel()
             thread = self.gif_thread
             if thread is not None and thread.is_alive():
                 self.root.config(cursor="watch")
                 self.root.update_idletasks()
-                thread.join(timeout=120.0)
+                thread.join(timeout=30.0)
                 self.root.config(cursor="")
                 if thread.is_alive():
                     messagebox.showwarning(
                         "Still encoding",
-                        "Encode still running. Wait, then close again.",
+                        "Encode still stopping. Wait, then close again.",
                     )
                     return
 
@@ -171,14 +186,31 @@ class GIFMaker:
             except (TypeError, ValueError):
                 self.region = None
         self.count_var.set(str(data.get("count", "10")))
-        self.interval_var.set(str(data.get("interval", "0.5")))
+        # Prefer new simple controls; fall back from legacy interval/speed
+        capture = data.get("capture_fps")
+        if capture:
+            self.capture_fps_var.set(str(capture))
+        else:
+            try:
+                interval = float(data.get("interval", "0.2"))
+            except (TypeError, ValueError):
+                interval = 0.2
+            self.capture_fps_var.set(interval_to_nearest_capture_label(interval))
+
+        feel = data.get("playback_feel")
+        if feel in PLAYBACK_FEEL_LABELS:
+            self.playback_feel_var.set(str(feel))
+        else:
+            self.playback_feel_var.set(PLAYBACK_FEEL_MATCH)
+
         self.output_var.set(str(data.get("output", "demo.gif")))
-        self.quality_var.set(str(data.get("quality", "MAX (100%)")))
-        self.speed_var.set(str(data.get("speed", "Normal (5 FPS)")))
+        self.quality_var.set(str(data.get("quality", "High (80%)")))
+        self._sync_timing_from_simple()
 
     def _save_persisted_settings(self) -> None:
         """Persist current region + form fields (best-effort on exit)."""
         try:
+            self._sync_timing_from_simple()
             region_list = list(self.region) if self.region else None
             save_settings(
                 {
@@ -188,10 +220,34 @@ class GIFMaker:
                     "output": self.output_var.get(),
                     "quality": self.quality_var.get(),
                     "speed": self.speed_var.get(),
+                    "capture_fps": self.capture_fps_var.get(),
+                    "playback_feel": self.playback_feel_var.get(),
                 }
             )
         except OSError:
             pass
+
+    def _sync_timing_from_simple(self) -> None:
+        """Keep interval/speed mirrors + tip in sync with Capture rate / feel."""
+        fps = parse_capture_fps(self.capture_fps_var.get())
+        interval = fps_to_interval(fps)
+        self.interval_var.set(f"{interval:.4g}")
+        duration = resolve_frame_duration_ms(self.playback_feel_var.get(), interval)
+        # Mirror nearest legacy speed label for older settings consumers
+        if duration >= 300:
+            self.speed_var.set("Slow (3 FPS)")
+        elif duration >= 160:
+            self.speed_var.set("Normal (5 FPS)")
+        elif duration >= 110:
+            self.speed_var.set("Fast (8 FPS)")
+        else:
+            self.speed_var.set("Very Fast (10 FPS)")
+        if hasattr(self, "timing_hint"):
+            self.timing_hint.config(
+                text=describe_timing(
+                    self.capture_fps_var.get(), self.playback_feel_var.get()
+                )
+            )
 
     def center_window(self) -> None:
         """Center the window on the screen."""
@@ -269,8 +325,8 @@ class GIFMaker:
 
         tk.Button(
             button_frame,
-            text="Common Browser Size",
-            command=self.select_browser_size,
+            text="Pick Window",
+            command=self.pick_window,
             bg=COLOR_ACCENT_ORANGE,
             fg=COLOR_TEXT_WHITE,
             font=("Arial", 10, "bold"),
@@ -305,16 +361,24 @@ class GIFMaker:
         count_entry = tk.Entry(settings_frame, textvariable=self.count_var, width=10)
         count_entry.grid(row=0, column=1, padx=10, pady=5)
 
-        # Interval
+        # Capture rate (replaces raw interval — drives recording FPS)
         tk.Label(
             settings_frame,
-            text="Interval (seconds):",
+            text="Capture rate:",
             fg=COLOR_TEXT_WHITE,
             bg=COLOR_BG_SECONDARY,
         ).grid(row=1, column=0, sticky="w", padx=10, pady=5)
-        self.interval_var = tk.StringVar(value="0.5")
-        interval_entry = tk.Entry(settings_frame, textvariable=self.interval_var, width=10)
-        interval_entry.grid(row=1, column=1, padx=10, pady=5)
+        self.capture_fps_var = tk.StringVar(value="5 FPS")
+        self.interval_var = tk.StringVar(value="0.2")  # kept in sync for validate/persist
+        capture_combo = ttk.Combobox(
+            settings_frame,
+            textvariable=self.capture_fps_var,
+            width=15,
+            state="readonly",
+        )
+        capture_combo["values"] = ("2 FPS", "5 FPS", "8 FPS", "10 FPS")
+        capture_combo.grid(row=1, column=1, padx=10, pady=5)
+        capture_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_timing_from_simple())
 
         # Output path
         tk.Label(
@@ -334,9 +398,9 @@ class GIFMaker:
             fg=COLOR_TEXT_WHITE,
             bg=COLOR_BG_SECONDARY,
         ).grid(row=3, column=0, sticky="w", padx=10, pady=5)
-        self.quality_var = tk.StringVar(value="MAX (100%)")
+        self.quality_var = tk.StringVar(value="High (80%)")
         quality_combo = ttk.Combobox(
-            settings_frame, textvariable=self.quality_var, width=15, state="readonly"
+            settings_frame, textvariable=self.quality_var, width=18, state="readonly"
         )
         quality_combo["values"] = (
             "MAX (100%)",
@@ -346,46 +410,44 @@ class GIFMaker:
         )
         quality_combo.grid(row=3, column=1, padx=10, pady=5)
 
-        # Quality tips
         quality_tips = tk.Label(
             settings_frame,
-            text="MAX: Perfect quality, refined processing | High: Smooth gradients | Medium: Balanced | Low: Small files",
+            text="High = best everyday look | MAX = pro demos | Medium/Low = smaller files",
             fg=COLOR_TEXT_LIGHTBLUE,
             bg=COLOR_BG_SECONDARY,
             font=("Arial", 8),
-            wraplength=300,
+            wraplength=320,
         )
         quality_tips.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=2)
 
-        # Playback speed setting
+        # Playback feel (links capture timing → GIF frame duration)
         tk.Label(
             settings_frame,
-            text="Playback Speed:",
+            text="Playback feel:",
             fg=COLOR_TEXT_WHITE,
             bg=COLOR_BG_SECONDARY,
         ).grid(row=5, column=0, sticky="w", padx=10, pady=5)
-        self.speed_var = tk.StringVar(value="Normal (5 FPS)")
-        speed_combo = ttk.Combobox(
-            settings_frame, textvariable=self.speed_var, width=15, state="readonly"
-        )
-        speed_combo["values"] = (
-            "Slow (3 FPS)",
-            "Normal (5 FPS)",
-            "Fast (8 FPS)",
-            "Very Fast (10 FPS)",
-        )
-        speed_combo.grid(row=5, column=1, padx=10, pady=5)
-
-        # Speed tips
-        speed_tips = tk.Label(
+        self.playback_feel_var = tk.StringVar(value=PLAYBACK_FEEL_MATCH)
+        self.speed_var = tk.StringVar(value="Normal (5 FPS)")  # legacy persist mirror
+        feel_combo = ttk.Combobox(
             settings_frame,
-            text="Slow: Easy to follow | Normal: Balanced | Fast: Quick preview | Very Fast: Rapid cycling",
+            textvariable=self.playback_feel_var,
+            width=22,
+            state="readonly",
+        )
+        feel_combo["values"] = PLAYBACK_FEEL_LABELS
+        feel_combo.grid(row=5, column=1, padx=10, pady=5)
+        feel_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_timing_from_simple())
+
+        self.timing_hint = tk.Label(
+            settings_frame,
+            text=describe_timing("5 FPS", PLAYBACK_FEEL_MATCH),
             fg=COLOR_TEXT_LIGHTBLUE,
             bg=COLOR_BG_SECONDARY,
             font=("Arial", 8),
-            wraplength=300,
+            wraplength=320,
         )
-        speed_tips.grid(row=6, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+        self.timing_hint.grid(row=6, column=0, columnspan=2, sticky="w", padx=10, pady=2)
 
         tk.Button(
             settings_frame,
@@ -394,6 +456,8 @@ class GIFMaker:
             bg=COLOR_BROWSE,
             fg=COLOR_TEXT_WHITE,
         ).grid(row=2, column=2, padx=5, pady=5)
+
+        self._sync_timing_from_simple()
 
         # Control buttons frame
         control_frame = tk.Frame(left_panel, bg=COLOR_BG_SECONDARY)
@@ -423,6 +487,19 @@ class GIFMaker:
             state="disabled",
         )
         self.create_button.pack(side="left", padx=(0, 10))
+
+        # Cancel encode (enabled only while GIF worker runs)
+        self.cancel_encode_button = tk.Button(
+            control_frame,
+            text="⏹️ Cancel Encode",
+            command=self.request_encode_cancel,
+            bg=COLOR_ACCENT_ORANGE,
+            fg=COLOR_TEXT_WHITE,
+            font=("Arial", 12, "bold"),
+            height=2,
+            state="disabled",
+        )
+        self.cancel_encode_button.pack(side="left", padx=(0, 10))
 
         # Clear button
         self.clear_button = tk.Button(
@@ -484,13 +561,24 @@ class GIFMaker:
         self.root.bind("<Control-Shift-Delete>", lambda e: self.clear_screenshots())
 
     def cancel_if_recording(self, event: Optional[tk.Event] = None) -> None:
-        """Cancel recording if active.
-
-        Args:
-            event: Optional tkinter event (for keyboard binding).
-        """
+        """Escape: stop recording, or cancel in-progress GIF encode."""
         if self.is_recording:
             self.stop_recording()
+            return
+        with self._lock:
+            encoding = self._encoding_active
+        if encoding:
+            self.request_encode_cancel()
+
+    def request_encode_cancel(self) -> None:
+        """Signal GIF worker to stop at next cancel check."""
+        with self._lock:
+            encoding = self._encoding_active
+        if not encoding:
+            return
+        self._encode_cancel.set()
+        self.log("Cancel requested — stopping encode…")
+        self.cancel_encode_button.config(state="disabled")
 
     def setup_preview_panel(self, parent: tk.Frame) -> None:
         """Setup the image preview panel.
@@ -1249,44 +1337,99 @@ class GIFMaker:
             )
             self.log(error_msg)
 
+    def pick_window(self) -> None:
+        """Pick a real OS window and set capture region to its bounds."""
+        if self._window_picker is not None and self._window_picker.winfo_exists():
+            self._window_picker.lift()
+            return
+
+        self.log("Listing windows…")
+        windows = list_capturable_windows(exclude_substrings=("Gif-Maker",))
+        if not windows:
+            messagebox.showinfo(
+                "No windows",
+                "No capturable windows found.\n"
+                "Tip: Un-minimize the target app, then try again.",
+            )
+            return
+
+        self._picked_windows = windows
+        picker = tk.Toplevel(self.root)
+        picker.title("Pick Window")
+        picker.configure(bg=COLOR_BG_SECONDARY)
+        picker.transient(self.root)
+        picker.grab_set()
+        self._window_picker = picker
+
+        tk.Label(
+            picker,
+            text="Select a window to capture:",
+            fg=COLOR_TEXT_WHITE,
+            bg=COLOR_BG_SECONDARY,
+            font=("Arial", 11, "bold"),
+        ).pack(padx=12, pady=(12, 6))
+
+        list_frame = tk.Frame(picker, bg=COLOR_BG_SECONDARY)
+        list_frame.pack(fill="both", expand=True, padx=12, pady=6)
+        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+        listbox = tk.Listbox(
+            list_frame,
+            width=70,
+            height=14,
+            yscrollcommand=scrollbar.set,
+            exportselection=False,
+        )
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+
+        for win in windows:
+            label = f"{win.title}  ({win.width}x{win.height} @ {win.left},{win.top})"
+            listbox.insert(tk.END, label)
+        listbox.selection_set(0)
+
+        btn_row = tk.Frame(picker, bg=COLOR_BG_SECONDARY)
+        btn_row.pack(fill="x", padx=12, pady=(6, 12))
+
+        def on_ok() -> None:
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("Pick Window", "Select a window first.")
+                return
+            chosen = self._picked_windows[int(sel[0])]
+            self.region = chosen.as_region()
+            x, y, w, h = self.region
+            self.region_label.config(text=f"Region: {chosen.title[:40]} ({w}x{h})")
+            self.log(f"Window selected: {chosen.title} → {self.region}")
+            picker.destroy()
+            self._window_picker = None
+
+        def on_cancel() -> None:
+            picker.destroy()
+            self._window_picker = None
+
+        tk.Button(
+            btn_row,
+            text="Use Window",
+            command=on_ok,
+            bg=COLOR_ACCENT_GREEN,
+            fg=COLOR_TEXT_WHITE,
+            font=("Arial", 10, "bold"),
+        ).pack(side="left", padx=(0, 8))
+        tk.Button(
+            btn_row,
+            text="Cancel",
+            command=on_cancel,
+            bg=COLOR_BROWSE,
+            fg=COLOR_TEXT_WHITE,
+            font=("Arial", 10, "bold"),
+        ).pack(side="left")
+        listbox.bind("<Double-Button-1>", lambda _e: on_ok())
+        picker.protocol("WM_DELETE_WINDOW", on_cancel)
+
     def select_browser_size(self) -> None:
-        """Select common browser window size.
-
-        Attempts to automatically detect and select a browser-sized region
-        centered on the screen. Falls back to manual selection if needed.
-        """
-        self.log("Selecting common browser window size...")
-        self.root.withdraw()
-        # Non-blocking delay so UI thread stays responsive
-        self.root.after(WINDOW_HIDE_DELAY_MS, self._finish_select_browser_size)
-
-    def _finish_select_browser_size(self) -> None:
-        """Complete browser-size selection after window hide delay."""
-        try:
-            screen_width, screen_height = pyautogui.size()
-
-            # Placeholder "browser size" until real window picker (P2#13 deferred)
-            browser_width = min(1400, screen_width - 100)  # Leave some margin
-            browser_height = min(900, screen_height - 100)
-            self.region = center_region(
-                screen_width, screen_height, browser_width, browser_height
-            )
-            x, y, browser_width, browser_height = self.region
-            self.region_label.config(
-                text=f"Region: Browser Size ({browser_width}x{browser_height})"
-            )
-            self.log(
-                f"Browser size selected: {browser_width}x{browser_height} at ({x},{y})"
-            )
-
-        except Exception as e:
-            error_msg = (
-                f"Browser size selection error: {e}\n"
-                f"Tip: Use 'Manual Coordinates' to select your browser window manually."
-            )
-            self.log(error_msg)
-        finally:
-            self.root.deiconify()
+        """Deprecated alias — opens real window picker (P2#13)."""
+        self.pick_window()
 
     def browse_output(self) -> None:
         """Browse for output file with path validation."""
@@ -1332,6 +1475,7 @@ class GIFMaker:
             return
 
         self.screenshot_count = int(self.count_var.get())
+        self._sync_timing_from_simple()
         self.interval = float(self.interval_var.get())
         self.is_recording = True
         self.record_button.config(text="⏹️ Stop Recording", bg=COLOR_ACCENT_RED)
@@ -1515,19 +1659,33 @@ class GIFMaker:
         self.log(f"Estimated file size: {estimated_size}")
 
         # Disable buttons during processing to prevent multiple operations
+        self._encode_cancel.clear()
         with self._lock:
             self._encoding_active = True
         self.create_button.config(state="disabled")
         self.record_button.config(state="disabled")
+        self.cancel_encode_button.config(state="normal")
         self._set_mutate_controls(False)
 
         # Start GIF creation in background thread (snapshot, not live list)
-        self.log("Creating animated GIF...")
+        self.log("Creating animated GIF... (Escape or Cancel Encode to stop)")
         self.gif_thread = threading.Thread(
             target=self.create_gif_worker, args=(frames, output_path)
         )
         self.gif_thread.daemon = True
         self.gif_thread.start()
+
+    def _finish_encode_ui(self, *, cancelled: bool = False) -> None:
+        """Re-enable controls after encode success, error, or cancel."""
+        with self._lock:
+            self._encoding_active = False
+        self._encode_cancel.clear()
+        self.create_button.config(state="normal")
+        self.record_button.config(state="normal")
+        self.cancel_encode_button.config(state="disabled")
+        self._set_mutate_controls(True)
+        if cancelled:
+            self.log("GIF encode cancelled — no output written.")
 
     def create_gif_worker(self, frames: List, output_path: str) -> None:
         """Worker function for GIF creation in background thread.
@@ -1546,20 +1704,25 @@ class GIFMaker:
                 quality_label=self.quality_var.get(),
                 speed_label=self.speed_var.get(),
                 log_callback=self.log_thread_safe,
+                cancel_check=self._encode_cancel.is_set,
+                frame_duration_ms=resolve_frame_duration_ms(
+                    self.playback_feel_var.get(),
+                    float(self.interval_var.get()),
+                ),
             )
 
             def enable_buttons():
-                with self._lock:
-                    self._encoding_active = False
-                self.create_button.config(state="normal")
-                self.record_button.config(state="normal")
-                self._set_mutate_controls(True)
+                self._finish_encode_ui()
                 if messagebox.askyesno(
                     "Success", "GIF created successfully!\n\nOpen file location?"
                 ):
                     self.open_file_location(output_path)
 
             self.root.after(0, enable_buttons)
+
+        except EncodeCancelled:
+            self.log_thread_safe("Encode cancelled by user.")
+            self.root.after(0, lambda: self._finish_encode_ui(cancelled=True))
 
         except Exception as e:
             error_msg = (
@@ -1569,11 +1732,7 @@ class GIFMaker:
             self.log_thread_safe(error_msg)
 
             def enable_buttons_error():
-                with self._lock:
-                    self._encoding_active = False
-                self.create_button.config(state="normal")
-                self.record_button.config(state="normal")
-                self._set_mutate_controls(True)
+                self._finish_encode_ui()
                 messagebox.showerror(
                     "Error",
                     f"Failed to create GIF: {e}\n\n"

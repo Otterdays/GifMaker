@@ -4,6 +4,18 @@
 
 *Security tracking - update on every package install/remove*
 
+## 2026-09-10c - Explicit pygetwindow (v1.0.8)
+
+*[P2#13 window picker now imports pygetwindow directly.]*
+
+| Package | Version pin | Purpose | License | Audit |
+|---------|-------------|---------|---------|-------|
+| pygetwindow | >=0.0.9 | Enumerate OS windows for Pick Window | BSD | OK — was already transitive via pyautogui; now direct |
+
+Pins updated in `requirements.txt` + `pyproject.toml`. No new vulnerability surface vs prior transitive use.
+
+---
+
 ## 2026-09-10b - Full inventory pass (parallel-safe)
 
 *[Agent claim: SBOM docs only — no app code. Other agents own P0/P1 code.]*  

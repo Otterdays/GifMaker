@@ -4,6 +4,52 @@
 
 *Active tasks, blockers, last 5 actions - NEVER delete, compact at 500 lines*
 
+## 2026-09-10 Session (Simplified timing UX → v1.0.9)
+
+### Active Tasks
+- [x] Explain capture vs playback (were disconnected)
+- [x] Capture rate FPS + Playback feel (1× realtime / faster / slower / slow-mo / demo)
+- [x] `frame_duration_ms` on create_gif; persist new fields; tests
+
+### Last 5 Actions
+1. Added timing helpers in `quality_engine`
+2. Replaced Interval/Speed UI with Capture rate + Playback feel
+3. Default High + 5 FPS + Match 1×
+4. Tests 62 passed; version **1.0.9**
+5. Docs CHANGELOG / SUMMARY / SCRATCHPAD
+
+### Next Steps
+- Manual: record UI motion at Match 1× vs Faster — confirm feel
+- Optional: README How-to wording for new controls
+
+---
+
+## 2026-09-10 Session (P2 finish — #12 cancel encode + #13 window picker)
+
+### Claim
+- Owner: P2 agent — finish deferred #12 / #13 → **v1.0.8**
+- Touch: `gif_creator.py`, `main_window.py`, `utils/window_picker.py`, tests, docs, deps
+
+### Active Tasks
+- [x] P2#12 Cancel mid-encode (`cancel_check` + Cancel button / Escape / close)
+- [x] P2#13 Real window picker (pygetwindow list dialog)
+- [x] Tests + CHANGELOG / SUMMARY / SBOM note
+
+### Last 5 Actions
+1. `EncodeCancelled` + per-frame `cancel_check` in `create_gif`
+2. Cancel Encode button; Escape cancels encode; close cancels then joins
+3. `Pick Window` dialog via `list_capturable_windows`
+4. Explicit `pygetwindow>=0.0.9` in requirements/pyproject
+5. pytest: **53 passed**; version **1.0.8**
+
+### Blockers
+- None
+
+### Next Steps
+- Manual smoke: encode MAX multi-frame → Cancel; Pick Window on Brave/Chrome
+
+---
+
 ## 2026-09-10 Session (P2 polish — shipped partial → v1.0.7)
 
 ### Claim (parallel-safe)
@@ -15,8 +61,8 @@
 - [x] P2#14 UI version → `gif_maker.version.__version__` (+ `version.py` SSOT)
 - [x] P2#11 Persist region/settings (`utils/settings_store.py` + load/save hooks)
 - [x] P2#15 Tests: thumbnail, region math, settings_store, quality path edges
-- [ ] P2#12 Cancel mid-encode (deferred)
-- [ ] P2#13 Real window picker (deferred)
+- [x] P2#12 Cancel mid-encode (deferred)
+- [x] P2#13 Real window picker (deferred)
 
 ### Last 5 Actions
 1. Added `settings_store.py`, `region_math.py`, `version.py`

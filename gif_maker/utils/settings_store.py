@@ -10,14 +10,24 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-# Defaults match GUI StringVar initial values (quality uses full combo label).
+from gif_maker.core.quality_engine import (
+    PLAYBACK_FEEL_LABELS,
+    PLAYBACK_FEEL_MATCH,
+    fps_to_interval,
+    interval_to_nearest_capture_label,
+    parse_capture_fps,
+)
+
+# Defaults match GUI StringVar initial values (simple timing controls).
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "region": None,
     "count": "10",
-    "interval": "0.5",
+    "interval": "0.2",
     "output": "demo.gif",
-    "quality": "MAX (100%)",
+    "quality": "High (80%)",
     "speed": "Normal (5 FPS)",
+    "capture_fps": "5 FPS",
+    "playback_feel": PLAYBACK_FEEL_MATCH,
 }
 
 ALLOWED_QUALITY = {
@@ -32,6 +42,7 @@ ALLOWED_SPEED = {
     "Fast (8 FPS)",
     "Very Fast (10 FPS)",
 }
+ALLOWED_CAPTURE = set(f"{n} FPS" for n in (2, 5, 8, 10))
 
 
 def default_settings_path() -> Path:
@@ -62,7 +73,7 @@ def sanitize_settings(raw: Dict[str, Any]) -> Dict[str, Any]:
     region = _normalize_region(raw.get("region"))
     out["region"] = list(region) if region else None
 
-    for key in ("count", "interval", "output"):
+    for key in ("count", "output"):
         val = raw.get(key)
         if val is not None and str(val).strip():
             out[key] = str(val).strip()
@@ -76,6 +87,25 @@ def sanitize_settings(raw: Dict[str, Any]) -> Dict[str, Any]:
     speed = raw.get("speed")
     if speed in ALLOWED_SPEED:
         out["speed"] = speed
+
+    capture = raw.get("capture_fps")
+    if capture in ALLOWED_CAPTURE:
+        out["capture_fps"] = capture
+    elif raw.get("interval") is not None:
+        try:
+            out["capture_fps"] = interval_to_nearest_capture_label(
+                float(raw.get("interval"))
+            )
+        except (TypeError, ValueError):
+            pass
+
+    feel = raw.get("playback_feel")
+    if feel in PLAYBACK_FEEL_LABELS:
+        out["playback_feel"] = feel
+
+    # Keep interval derived from capture FPS (source of truth)
+    fps = parse_capture_fps(out["capture_fps"])
+    out["interval"] = f"{fps_to_interval(fps):.4g}"
 
     return out
 

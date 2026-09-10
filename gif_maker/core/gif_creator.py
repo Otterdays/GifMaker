@@ -2,7 +2,7 @@
 
 import os
 import tempfile
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from PIL import Image, ImageFilter
 
@@ -11,6 +11,10 @@ from gif_maker.core.quality_engine import (
     parse_quality_params,
     parse_speed_frame_duration,
 )
+
+
+class EncodeCancelled(Exception):
+    """User cancelled GIF encode before it finished."""
 
 
 def _atomic_save(images: List[Image.Image], output_path: str, **save_kwargs) -> None:
@@ -40,12 +44,19 @@ def _atomic_save(images: List[Image.Image], output_path: str, **save_kwargs) -> 
         raise
 
 
+def _check_cancel(cancel_check: Optional[Callable[[], bool]]) -> None:
+    if cancel_check is not None and cancel_check():
+        raise EncodeCancelled("GIF encode cancelled")
+
+
 def create_gif(
     screenshots: List[Image.Image],
     output_path: str,
     quality_label: str,
     speed_label: str,
     log_callback: Callable[[str], None],
+    cancel_check: Optional[Callable[[], bool]] = None,
+    frame_duration_ms: Optional[int] = None,
 ) -> None:
     """Create animated GIF from screenshots.
 
@@ -53,11 +64,14 @@ def create_gif(
         screenshots: List of PIL images to encode.
         output_path: Output file path (will add .gif if missing).
         quality_label: UI quality selection string.
-        speed_label: UI speed selection string.
+        speed_label: UI speed selection string (used if frame_duration_ms unset).
         log_callback: Thread-safe logging function.
+        cancel_check: Optional callable; True → raise EncodeCancelled.
+        frame_duration_ms: Optional explicit GIF frame duration (ms).
 
     Raises:
         ValueError: If screenshots list is empty.
+        EncodeCancelled: If cancel_check returns True mid-encode.
     """
     if not screenshots:
         raise ValueError("No screenshots to encode")
@@ -66,6 +80,8 @@ def create_gif(
         output_path += ".gif"
 
     frame_duration = parse_speed_frame_duration(speed_label)
+    if frame_duration_ms is not None:
+        frame_duration = max(20, int(frame_duration_ms))
     quality_params = parse_quality_params(quality_label)
     quality = quality_params["quality"]
     method = quality_params["method"]
@@ -74,10 +90,11 @@ def create_gif(
     quality_prefix = get_quality_prefix(quality_label)
 
     log_callback(f"Creating GIF with {quality_label} quality settings...")
-    log_callback(f"Playback speed: {speed_label} ({frame_duration}ms per frame)")
+    log_callback(f"Frame duration: {frame_duration}ms (~{1000 / frame_duration:.1f} FPS)")
 
     processed_screenshots = []
     for screenshot in screenshots:
+        _check_cancel(cancel_check)
         if screenshot.mode != "RGB":
             screenshot = screenshot.convert("RGB")
         if quality_params.get("quality") == 80:
@@ -89,6 +106,7 @@ def create_gif(
         quantized_images = []
         total_frames = len(processed_screenshots)
         for i, img in enumerate(processed_screenshots):
+            _check_cancel(cancel_check)
             try:
                 sharpened = img.filter(
                     ImageFilter.UnsharpMask(radius=0.8, percent=120, threshold=2)
@@ -104,6 +122,8 @@ def create_gif(
                     log_callback(
                         f"Processing frame {i+1}/{total_frames} ({progress:.1f}%)"
                     )
+            except EncodeCancelled:
+                raise
             except Exception as e:
                 log_callback(
                     f"Advanced processing failed for frame {i+1}, using basic: {e}"
@@ -111,6 +131,7 @@ def create_gif(
                 basic_quantized = img.quantize(colors=256, method=Image.MEDIANCUT)
                 quantized_images.append(basic_quantized.convert("RGB"))
 
+        _check_cancel(cancel_check)
         _atomic_save(
             quantized_images,
             output_path,
@@ -123,9 +144,11 @@ def create_gif(
     elif quality_prefix == "High":
         quantized_images = []
         for img in processed_screenshots:
+            _check_cancel(cancel_check)
             quantized = img.quantize(colors=256, method=Image.MEDIANCUT)
             quantized = quantized.convert("RGB")
             quantized_images.append(quantized)
+        _check_cancel(cancel_check)
         _atomic_save(
             quantized_images,
             output_path,
@@ -135,6 +158,7 @@ def create_gif(
             dither=1,
         )
     else:
+        _check_cancel(cancel_check)
         _atomic_save(
             processed_screenshots,
             output_path,
