@@ -2,7 +2,7 @@
 
 # Gif-Maker Project Summary
 
-*Last Updated: 2025-03-19*
+*Last Updated: 2026-09-10* [AMENDED: P0 reliability → v1.0.5]
 
 ## Quick Links
 
@@ -10,8 +10,9 @@
 - [STYLE_GUIDE](STYLE_GUIDE.md) - Coding conventions
 - [SBOM](SBOM.md) - Security/package tracking
 - [SCRATCHPAD](SCRATCHPAD.md) - Active tasks, blockers
-- [CHANGELOG](../CHANGELOG.md) - Version history
+- [CHANGELOG](CHANGELOG.md) - Version history (canonical under DOCS/)
 - [tests/](../tests/) - Unit tests (`python -m pytest tests/`)
+- [AGENTS](../AGENTS.md) - Agent entrypoint / doc map
 
 ---
 
@@ -30,7 +31,7 @@ Transform multi-tool GIF creation into a single, intuitive application.
 
 ## Technical Stack
 
-- Python 3.8+ | tkinter | pyautogui | Pillow | threading | pytest (dev)
+- Python 3.8+ | tkinter | pyautogui | Pillow (>=12.3.0) | threading | pytest (dev)
 
 ## Project Structure
 
@@ -41,22 +42,36 @@ GifMaker/
 ├── requirements.txt
 ├── pyproject.toml
 ├── install.bat / launch.bat
+├── AGENTS.md             # Agent / contributor entry
 ├── DOCS/
-│   ├── SUMMARY.md        # This file
+│   ├── SUMMARY.md        # This file (canonical)
 │   ├── SBOM.md           # Package security
 │   ├── SCRATCHPAD.md     # Active tasks
+│   ├── CHANGELOG.md      # Version history (canonical)
 │   ├── ARCHITECTURE.md
 │   └── STYLE_GUIDE.md
 ├── README.md
-└── CHANGELOG.md
+├── SUMMARY.md            # Legacy pointer → DOCS/SUMMARY.md
+└── SCRATCHPAD.md         # Legacy pointer → DOCS/SCRATCHPAD.md
 ```
 
 ## Current Status
 
-- **Version**: 1.0.3
-- **Status**: Production Ready
+- **Version**: 1.0.5
+- **Status**: Production Ready (P0 reliability 2026-09-10)
 - **Platform**: Windows (primary), macOS/Linux compatible
-- **Tests**: 20 unit tests (`python -m pytest tests/`)
+- **Tests**: 24 unit tests (`python -m pytest tests/`) — last run: all pass
+- **Security**: Pillow pin raised to `>=12.3.0,<13`; `pip-audit` clean on direct deps
+- **SBOM**: Full inventory pass 2026-09-10b (transitive versions/licenses + audit how-to) — see [SBOM.md](SBOM.md)
+
+### [AMENDED 2026-09-10] P0 reliability (v1.0.5)
+- Frame-list lock/snapshot; atomic GIF save; overwrite confirm; safe window close
+- New tests: `tests/test_gif_creator.py`
+
+### [AMENDED 2026-09-10] Audit snapshot
+- Package layout from v1.0.3 intact; `pyproject.toml` version was stale at 1.0.1 → aligned to 1.0.4
+- Root `CHANGELOG.md` had been removed; canonical changelog is `DOCS/CHANGELOG.md`
+- Largest module: `gui/main_window.py` (~1397 lines) — split still optional
 
 ---
 

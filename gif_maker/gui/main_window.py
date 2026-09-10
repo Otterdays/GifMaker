@@ -28,17 +28,24 @@ from gif_maker.core.constants import (
     COLOR_TEXT_LIGHT,
     COLOR_TEXT_LIGHTBLUE,
     COLOR_TEXT_WHITE,
+    MAX_CAPTURE_FAILURES,
     MIN_HEIGHT,
-    MIN_REGION_SIZE,
     MIN_WIDTH,
     SELECTION_CLOSE_DELAY,
     WINDOW_HEIGHT,
-    WINDOW_HIDE_DELAY,
+    WINDOW_HIDE_DELAY_MS,
     WINDOW_WIDTH,
 )
 from gif_maker.core.gif_creator import create_gif
 from gif_maker.core.quality_engine import estimate_gif_size_logic, validate_settings_logic
 from gif_maker.utils.image_utils import make_thumbnail
+from gif_maker.utils.region_math import (
+    center_region,
+    is_region_large_enough,
+    selection_to_region,
+)
+from gif_maker.utils.settings_store import load_settings, save_settings
+from gif_maker.version import __version__
 
 
 class GIFMaker:
@@ -49,14 +56,17 @@ class GIFMaker:
             root: The main tkinter root window.
         """
         self.root = root
-        self.root.title("Gif-Maker V1.0")
+        self.root.title(f"Gif-Maker V{__version__}")
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
         self.root.configure(bg=COLOR_BG_PRIMARY)
 
-        # Thread safety
+        # Thread safety — lock guards screenshots + busy flags
         self._lock = threading.Lock()
         self._recording_active = False
+        self._encoding_active = False
+        self.recording_thread: Optional[threading.Thread] = None
+        self.gif_thread: Optional[threading.Thread] = None
 
         # Center the window on screen
         self.center_window()
@@ -77,6 +87,12 @@ class GIFMaker:
         # Setup keyboard shortcuts
         self.setup_keyboard_shortcuts()
 
+        # P2#11 — restore last region/settings (after widgets exist)
+        self._load_persisted_settings()
+
+        # Safe shutdown: stop record / wait encode before destroy
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
     def _ui(self, fn, *args, **kwargs) -> None:
         """Schedule `fn` to run on the Tk main thread."""
         self.root.after(0, lambda: fn(*args, **kwargs))
@@ -84,6 +100,98 @@ class GIFMaker:
     def _safe_stop_recording_from_worker(self) -> None:
         """Stop recording from a worker thread (thread-safe wrapper)."""
         self._ui(self.stop_recording)
+
+    def _is_busy(self) -> bool:
+        """True while recording or GIF encode holds the frame list."""
+        with self._lock:
+            return self._recording_active or self._encoding_active
+
+    def _snapshot_screenshots(self) -> List:
+        """Copy screenshot list under lock for encode (no mutate race)."""
+        with self._lock:
+            return list(self.screenshots)
+
+    def _set_mutate_controls(self, enabled: bool) -> None:
+        """Enable/disable Clear + Delete while frames must stay stable."""
+        state = "normal" if enabled else "disabled"
+        self.clear_button.config(state=state)
+        # Delete only when enabled and frames exist
+        if enabled and self.screenshots:
+            self.delete_button.config(state="normal")
+        else:
+            self.delete_button.config(state="disabled")
+
+    def on_close(self) -> None:
+        """Handle window close: stop recording, wait for encode, then destroy."""
+        if self.is_recording or self._recording_active:
+            if not messagebox.askyesno(
+                "Recording in progress",
+                "Stop recording and exit?",
+            ):
+                return
+            self.is_recording = False
+            thread = self.recording_thread
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=3.0)
+
+        with self._lock:
+            encoding = self._encoding_active
+        if encoding:
+            if not messagebox.askokcancel(
+                "GIF encode in progress",
+                "Wait for encode to finish, then exit?\n"
+                "Cancel keeps the window open.",
+            ):
+                return
+            thread = self.gif_thread
+            if thread is not None and thread.is_alive():
+                self.root.config(cursor="watch")
+                self.root.update_idletasks()
+                thread.join(timeout=120.0)
+                self.root.config(cursor="")
+                if thread.is_alive():
+                    messagebox.showwarning(
+                        "Still encoding",
+                        "Encode still running. Wait, then close again.",
+                    )
+                    return
+
+        self._save_persisted_settings()
+        self.root.destroy()
+
+    def _load_persisted_settings(self) -> None:
+        """Apply saved region + form fields from ~/.gifmaker/settings.json."""
+        data = load_settings()
+        region = data.get("region")
+        if isinstance(region, list) and len(region) == 4:
+            try:
+                self.region = tuple(int(v) for v in region)  # type: ignore[assignment]
+                x, y, w, h = self.region
+                self.region_label.config(text=f"Region: {x},{y} {w}x{h}")
+            except (TypeError, ValueError):
+                self.region = None
+        self.count_var.set(str(data.get("count", "10")))
+        self.interval_var.set(str(data.get("interval", "0.5")))
+        self.output_var.set(str(data.get("output", "demo.gif")))
+        self.quality_var.set(str(data.get("quality", "MAX (100%)")))
+        self.speed_var.set(str(data.get("speed", "Normal (5 FPS)")))
+
+    def _save_persisted_settings(self) -> None:
+        """Persist current region + form fields (best-effort on exit)."""
+        try:
+            region_list = list(self.region) if self.region else None
+            save_settings(
+                {
+                    "region": region_list,
+                    "count": self.count_var.get(),
+                    "interval": self.interval_var.get(),
+                    "output": self.output_var.get(),
+                    "quality": self.quality_var.get(),
+                    "speed": self.speed_var.get(),
+                }
+            )
+        except OSError:
+            pass
 
     def center_window(self) -> None:
         """Center the window on the screen."""
@@ -108,7 +216,7 @@ class GIFMaker:
         # Title
         title_label = tk.Label(
             self.root,
-            text="🎬 Gif-Maker V1.0",
+            text=f"🎬 Gif-Maker V{__version__}",
             font=("Arial", 20, "bold"),
             fg=COLOR_TEXT_WHITE,
             bg=COLOR_BG_PRIMARY,
@@ -226,7 +334,7 @@ class GIFMaker:
             fg=COLOR_TEXT_WHITE,
             bg=COLOR_BG_SECONDARY,
         ).grid(row=3, column=0, sticky="w", padx=10, pady=5)
-        self.quality_var = tk.StringVar(value="MAX")
+        self.quality_var = tk.StringVar(value="MAX (100%)")
         quality_combo = ttk.Combobox(
             settings_frame, textvariable=self.quality_var, width=15, state="readonly"
         )
@@ -372,7 +480,8 @@ class GIFMaker:
         self.root.bind("<space>", lambda e: self.toggle_recording())
         self.root.bind("<Escape>", lambda e: self.cancel_if_recording())
         self.root.bind("<Control-s>", lambda e: self.create_gif())
-        self.root.bind("<Control-c>", lambda e: self.clear_screenshots())
+        # Ctrl+C kept free for OS copy; clear uses Ctrl+Shift+Delete
+        self.root.bind("<Control-Shift-Delete>", lambda e: self.clear_screenshots())
 
     def cancel_if_recording(self, event: Optional[tk.Event] = None) -> None:
         """Cancel recording if active.
@@ -524,8 +633,22 @@ class GIFMaker:
         self._ui(self.progress.__setitem__, "value", value)
 
     def refresh_preview(self) -> None:
-        """Refresh the image preview with lazy loading."""
-        if not self.screenshots:
+        """Refresh preview; append only new thumbs (O(1) per frame, not O(n²))."""
+        with self._lock:
+            shot_count = len(self.screenshots)
+            if shot_count == 0:
+                new_frames = None
+            elif len(self.preview_images) < shot_count:
+                # Refs only — thumbnail work happens outside the lock
+                new_frames = self.screenshots[len(self.preview_images) :]
+            elif len(self.preview_images) > shot_count:
+                new_frames = "rebuild"
+                shots_copy = list(self.screenshots)
+            else:
+                new_frames = []
+
+        if shot_count == 0:
+            self.preview_images.clear()
             self.preview_label.config(text="No images captured yet")
             self.image_counter.config(text="0/0")
             self.image_info.config(text="")
@@ -534,13 +657,14 @@ class GIFMaker:
             self.delete_button.config(state="disabled")
             return
 
-        # Only create thumbnails if not already created or count changed
-        if len(self.preview_images) != len(self.screenshots):
-            self.preview_images = [
-                make_thumbnail(screenshot) for screenshot in self.screenshots
-            ]
+        if new_frames == "rebuild":
+            self.preview_images = [make_thumbnail(s) for s in shots_copy]
+        elif new_frames:
+            for screenshot in new_frames:
+                self.preview_images.append(make_thumbnail(screenshot))
+            # Show newest frame while recording appends
+            self.current_preview_index = len(self.preview_images) - 1
 
-        # Update preview
         self.update_preview_display()
 
     def update_preview_display(self) -> None:
@@ -596,14 +720,19 @@ class GIFMaker:
 
     def delete_current_image(self) -> None:
         """Delete the currently displayed image."""
-        if not self.screenshots or self.current_preview_index >= len(self.screenshots):
+        if self._is_busy():
+            self.log("Cannot delete while recording or encoding")
             return
-
-        # Remove the image and free memory
-        img = self.screenshots[self.current_preview_index]
-        if hasattr(img, "close"):
-            img.close()
-        del self.screenshots[self.current_preview_index]
+        with self._lock:
+            if not self.screenshots or self.current_preview_index >= len(
+                self.screenshots
+            ):
+                return
+            # Remove the image and free memory
+            img = self.screenshots[self.current_preview_index]
+            if hasattr(img, "close"):
+                img.close()
+            del self.screenshots[self.current_preview_index]
 
         if self.current_preview_index < len(self.preview_images):
             preview_img = self.preview_images[self.current_preview_index]
@@ -697,13 +826,15 @@ class GIFMaker:
         self.region_canvas.bind("<Button-1>", self.start_selection)
         self.region_canvas.bind("<B1-Motion>", self.update_selection)
         self.region_canvas.bind("<ButtonRelease-1>", self.end_selection)
-        self.region_canvas.bind("<Escape>", self.cancel_selection)
+        # bind_all so Escape works even when canvas lacks keyboard focus
+        self.region_overlay.bind_all("<Escape>", self.cancel_selection)
 
         # Show instructions
         self.show_selection_instructions()
 
-        # Focus the overlay
-        self.region_overlay.focus_set()
+        # Force focus — focus_set alone often fails on fullscreen overlays
+        self.region_overlay.focus_force()
+        self.region_canvas.focus_force()
 
     def show_selection_instructions(self) -> None:
         """Show instructions on the overlay."""
@@ -972,16 +1103,12 @@ class GIFMaker:
             return
 
         # Calculate final region
-        x1, y1 = self.start_x, self.start_y
-        x2, y2 = event.x, event.y
-
-        x = min(x1, x2)
-        y = min(y1, y2)
-        width = abs(x2 - x1)
-        height = abs(y2 - y1)
+        x, y, width, height = selection_to_region(
+            self.start_x, self.start_y, event.x, event.y
+        )
 
         # Validate selection
-        if width < MIN_REGION_SIZE or height < MIN_REGION_SIZE:
+        if not is_region_large_enough((x, y, width, height)):
             screen_width = self.region_overlay.winfo_screenwidth()
             screen_height = self.region_overlay.winfo_screenheight()
 
@@ -1085,9 +1212,12 @@ class GIFMaker:
                         self.region_canvas.unbind("<Button-1>")
                         self.region_canvas.unbind("<B1-Motion>")
                         self.region_canvas.unbind("<ButtonRelease-1>")
-                        self.region_canvas.unbind("<Escape>")
                     except Exception:
                         pass
+                try:
+                    self.region_overlay.unbind_all("<Escape>")
+                except Exception:
+                    pass
                 self.region_overlay.destroy()
             except Exception as e:
                 self.log(f"Error closing overlay: {e}")
@@ -1097,6 +1227,8 @@ class GIFMaker:
                     del self.region_overlay
                 if hasattr(self, "region_canvas"):
                     del self.region_canvas
+                # Restore main-window Escape (unbind_all removes it)
+                self.root.bind("<Escape>", lambda e: self.cancel_if_recording())
 
     def select_fullscreen(self) -> None:
         """Select full screen region.
@@ -1125,25 +1257,27 @@ class GIFMaker:
         """
         self.log("Selecting common browser window size...")
         self.root.withdraw()
-        time.sleep(WINDOW_HIDE_DELAY)
+        # Non-blocking delay so UI thread stays responsive
+        self.root.after(WINDOW_HIDE_DELAY_MS, self._finish_select_browser_size)
 
+    def _finish_select_browser_size(self) -> None:
+        """Complete browser-size selection after window hide delay."""
         try:
             screen_width, screen_height = pyautogui.size()
 
-            # Try to find browser window by looking for common patterns
-            # This is a simple approach - look for a reasonable window size
+            # Placeholder "browser size" until real window picker (P2#13 deferred)
             browser_width = min(1400, screen_width - 100)  # Leave some margin
             browser_height = min(900, screen_height - 100)
-
-            # Center the region
-            x = (screen_width - browser_width) // 2
-            y = (screen_height - browser_height) // 2
-
-            self.region = (x, y, browser_width, browser_height)
+            self.region = center_region(
+                screen_width, screen_height, browser_width, browser_height
+            )
+            x, y, browser_width, browser_height = self.region
             self.region_label.config(
                 text=f"Region: Browser Size ({browser_width}x{browser_height})"
             )
-            self.log(f"Browser size selected: {browser_width}x{browser_height} at ({x},{y})")
+            self.log(
+                f"Browser size selected: {browser_width}x{browser_height} at ({x},{y})"
+            )
 
         except Exception as e:
             error_msg = (
@@ -1152,7 +1286,6 @@ class GIFMaker:
             )
             self.log(error_msg)
         finally:
-            # Show main window again
             self.root.deiconify()
 
     def browse_output(self) -> None:
@@ -1203,19 +1336,27 @@ class GIFMaker:
         self.is_recording = True
         self.record_button.config(text="⏹️ Stop Recording", bg=COLOR_ACCENT_RED)
         self.create_button.config(state="disabled")
+        self._set_mutate_controls(False)
 
         # Hide the window during recording to avoid it appearing in screenshots
         self.root.withdraw()
         self.log("Window hidden for clean recording...")
 
-        # Small delay to ensure window is completely hidden
-        time.sleep(WINDOW_HIDE_DELAY)
+        # Non-blocking delay — time.sleep on UI thread freezes the app
+        self.root.after(WINDOW_HIDE_DELAY_MS, self._start_recording_after_hide)
 
-        # Start recording in separate thread with thread safety
+    def _start_recording_after_hide(self) -> None:
+        """Begin capture thread after window hide delay."""
+        if not self.is_recording:
+            self.root.deiconify()
+            self._set_mutate_controls(True)
+            return
+
         with self._lock:
             if self._recording_active:
                 self.log("Recording already in progress")
                 self.is_recording = False
+                self._set_mutate_controls(True)
                 self.root.deiconify()
                 return
             self._recording_active = True
@@ -1235,6 +1376,11 @@ class GIFMaker:
         self.create_button.config(
             state="normal" if self.screenshots else "disabled"
         )
+        # Re-enable mutate only if encode not running
+        with self._lock:
+            encoding = self._encoding_active
+        if not encoding:
+            self._set_mutate_controls(True)
 
         # Show the window again after recording
         self.root.deiconify()
@@ -1255,6 +1401,7 @@ class GIFMaker:
                 f"Starting recording: {self.screenshot_count} screenshots every {self.interval}s"
             )
 
+            consecutive_failures = 0
             for i in range(self.screenshot_count):
                 if not self.is_recording:
                     break
@@ -1262,12 +1409,15 @@ class GIFMaker:
                 try:
                     # Take screenshot of selected region
                     screenshot = pyautogui.screenshot(region=self.region)
-                    self.screenshots.append(screenshot)
+                    with self._lock:
+                        self.screenshots.append(screenshot)
+                        frame_count = len(self.screenshots)
 
+                    consecutive_failures = 0
                     self.log_thread_safe(
                         f"Screenshot {i+1}/{self.screenshot_count} captured"
                     )
-                    self._set_count_display(f"Screenshots: {len(self.screenshots)}")
+                    self._set_count_display(f"Screenshots: {frame_count}")
 
                     # Update progress
                     progress = ((i + 1) / self.screenshot_count) * 100
@@ -1280,11 +1430,20 @@ class GIFMaker:
                         time.sleep(self.interval)
 
                 except Exception as e:
+                    consecutive_failures += 1
                     error_msg = (
                         f"Error capturing screenshot {i+1}: {e}\n"
-                        f"Tip: Ensure the selected region is still visible and accessible."
+                        f"Tip: Region still visible? pyautogui FAILSAFE trips if "
+                        f"mouse hits a screen corner — move mouse and retry.\n"
+                        f"Consecutive failures: {consecutive_failures}/{MAX_CAPTURE_FAILURES}"
                     )
                     self.log_thread_safe(error_msg)
+                    if consecutive_failures >= MAX_CAPTURE_FAILURES:
+                        self.log_thread_safe(
+                            "Aborting recording after repeated capture failures."
+                        )
+                        self.is_recording = False
+                        break
         finally:
             # Always release the lock
             with self._lock:
@@ -1303,15 +1462,20 @@ class GIFMaker:
         closing image objects to free memory. Resets the preview display
         and updates UI state.
         """
-        # Explicitly delete images to free memory
-        for img in self.screenshots:
-            if hasattr(img, "close"):
-                img.close()
+        if self._is_busy():
+            self.log("Cannot clear while recording or encoding")
+            return
+
+        with self._lock:
+            for img in self.screenshots:
+                if hasattr(img, "close"):
+                    img.close()
+            self.screenshots.clear()
+
         for img in self.preview_images:
             if hasattr(img, "close"):
                 img.close()
 
-        self.screenshots.clear()
         self.preview_images.clear()
         self.current_preview_index = 0
         self.count_display.config(text="Screenshots: 0")
@@ -1327,40 +1491,57 @@ class GIFMaker:
         and starts background GIF creation. Disables UI buttons during
         processing to prevent multiple operations.
         """
-        if not self.screenshots:
+        if self._is_busy():
+            messagebox.showinfo("Busy", "Wait for recording or encode to finish.")
+            return
+
+        frames = self._snapshot_screenshots()
+        if not frames:
             messagebox.showerror("Error", "No screenshots to create GIF from!")
             return
+
+        output_path = self.output_var.get()
+        if not output_path.endswith(".gif"):
+            output_path += ".gif"
+        if os.path.exists(output_path):
+            if not messagebox.askyesno(
+                "Overwrite?",
+                f"File already exists:\n{output_path}\n\nOverwrite?",
+            ):
+                return
 
         # Show estimated file size
         estimated_size = self.estimate_gif_size()
         self.log(f"Estimated file size: {estimated_size}")
 
         # Disable buttons during processing to prevent multiple operations
+        with self._lock:
+            self._encoding_active = True
         self.create_button.config(state="disabled")
         self.record_button.config(state="disabled")
-        self.clear_button.config(state="disabled")
+        self._set_mutate_controls(False)
 
-        # Start GIF creation in background thread
+        # Start GIF creation in background thread (snapshot, not live list)
         self.log("Creating animated GIF...")
-        self.gif_thread = threading.Thread(target=self.create_gif_worker)
+        self.gif_thread = threading.Thread(
+            target=self.create_gif_worker, args=(frames, output_path)
+        )
         self.gif_thread.daemon = True
         self.gif_thread.start()
 
-    def create_gif_worker(self) -> None:
+    def create_gif_worker(self, frames: List, output_path: str) -> None:
         """Worker function for GIF creation in background thread.
 
-        Processes screenshots according to quality settings and creates
-        animated GIF. Runs in separate thread to prevent UI blocking.
+        Processes a snapshot of screenshots according to quality settings.
+        Runs in separate thread to prevent UI blocking.
 
-        Raises:
-            Exception: If GIF creation fails, logs error and re-enables UI.
+        Args:
+            frames: Snapshot of PIL images (stable for this encode).
+            output_path: Resolved .gif output path.
         """
         try:
-            output_path = self.output_var.get()
-            if not output_path.endswith(".gif"):
-                output_path += ".gif"
             create_gif(
-                screenshots=self.screenshots,
+                screenshots=frames,
                 output_path=output_path,
                 quality_label=self.quality_var.get(),
                 speed_label=self.speed_var.get(),
@@ -1368,9 +1549,11 @@ class GIFMaker:
             )
 
             def enable_buttons():
+                with self._lock:
+                    self._encoding_active = False
                 self.create_button.config(state="normal")
                 self.record_button.config(state="normal")
-                self.clear_button.config(state="normal")
+                self._set_mutate_controls(True)
                 if messagebox.askyesno(
                     "Success", "GIF created successfully!\n\nOpen file location?"
                 ):
@@ -1386,12 +1569,15 @@ class GIFMaker:
             self.log_thread_safe(error_msg)
 
             def enable_buttons_error():
+                with self._lock:
+                    self._encoding_active = False
                 self.create_button.config(state="normal")
                 self.record_button.config(state="normal")
-                self.clear_button.config(state="normal")
+                self._set_mutate_controls(True)
                 messagebox.showerror(
                     "Error",
-                    f"Failed to create GIF: {e}\n\nTip: Try a lower quality setting or check disk space.",
+                    f"Failed to create GIF: {e}\n\n"
+                    "Tip: Try a lower quality setting or check disk space.",
                 )
 
             self.root.after(0, enable_buttons_error)

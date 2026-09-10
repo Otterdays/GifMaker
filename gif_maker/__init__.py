@@ -1,5 +1,7 @@
 """Gif-Maker V1.0 - Professional Animated GIF Creation Tool."""
 
+from gif_maker.version import __version__
+
 from gif_maker.gui.main_window import GIFMaker
 from gif_maker.main import main
 
@@ -16,6 +18,7 @@ from gif_maker.core.quality_engine import (
 )
 
 __all__ = [
+    "__version__",
     "GIFMaker",
     "main",
     "validate_settings_logic",

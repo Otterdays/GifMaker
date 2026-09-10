@@ -124,9 +124,9 @@ python -m pytest tests/ -v
 
 ### Keyboard Shortcuts
 - **`Space`**: Start/Stop recording
-- **`Escape`**: Cancel active recording
+- **`Escape`**: Cancel active recording / dismiss region overlay
 - **`Ctrl+S`**: Create GIF
-- **`Ctrl+C`**: Clear all screenshots
+- **`Ctrl+Shift+Delete`**: Clear all screenshots
 
 ## ⚙️ Quality Settings Explained
 
@@ -231,6 +231,12 @@ GifMaker/
 
 ## 🎉 What's New
 
+### Version 1.0.4 - Security audit + docs sync (September 2026)
+
+- **Pillow**: pin raised to `>=12.3.0,<13` (`pip-audit` clean)
+- **Docs/SBOM**: refreshed; canonical changelog under `DOCS/CHANGELOG.md`
+- **Version sync**: `pyproject.toml` + `gif_maker.__version__` → 1.0.4
+
 ### Version 1.0.3 - Package Modernization (March 2025)
 
 - **Package structure**: `gif_maker/` with gui/, core/, utils/ modules
@@ -241,7 +247,7 @@ GifMaker/
 ### Version 1.0.1 - Code Quality Improvements (December 2024)
 
 #### User Experience
-- ✅ **Keyboard Shortcuts**: Space (record), Escape (cancel), Ctrl+S (create GIF), Ctrl+C (clear)
+- ✅ **Keyboard Shortcuts**: Space (record), Escape (cancel), Ctrl+S (create GIF), Ctrl+Shift+Delete (clear)
 - ✅ **File Size Estimation**: Preview estimated GIF size before creation
 - ✅ **Better Error Messages**: Enhanced with actionable tips and context
 - ✅ **Input Validation**: Automatic validation with helpful feedback
@@ -299,7 +305,8 @@ For detailed technical documentation, see:
 - **[Project Summary](DOCS/SUMMARY.md)**: High-level overview, quick links
 - **[SBOM](DOCS/SBOM.md)**: Package security tracking
 - **[Scratchpad](DOCS/SCRATCHPAD.md)**: Active tasks, blockers
-- **[Changelog](CHANGELOG.md)**: Version history
+- **[Changelog](DOCS/CHANGELOG.md)**: Version history
+- **[AGENTS](AGENTS.md)**: Agent / contributor entry map
 
 ## 🔬 Technical Deep Dive
 
@@ -383,7 +390,8 @@ GifMaker/
 ├── install.bat          # Windows dependency installer
 ├── launch.bat           # Windows application launcher
 ├── README.md            # This comprehensive documentation
-├── CHANGELOG.md         # Detailed version history
+├── AGENTS.md            # Agent entry map
+├── DOCS/CHANGELOG.md    # Detailed version history (canonical)
 ├── ai_suggestions.md    # Future enhancement roadmap
 ├── DOCS/                # Architecture, style guide, SBOM
 ├── LICENSE              # MIT License

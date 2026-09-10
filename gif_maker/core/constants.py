@@ -24,11 +24,15 @@ COLOR_BROWSE = "#95a5a6"
 
 # Timing Constants
 WINDOW_HIDE_DELAY = 0.5
+WINDOW_HIDE_DELAY_MS = 500  # same delay for root.after (ms)
 SELECTION_CLOSE_DELAY = 2000
 MIN_INTERVAL = 0.1
 MAX_INTERVAL = 60.0
 MIN_SCREENSHOT_COUNT = 1
 MAX_SCREENSHOT_COUNT = 1000
+
+# Capture reliability — abort after this many consecutive screenshot failures
+MAX_CAPTURE_FAILURES = 3
 
 # Frame Duration Constants (milliseconds)
 FRAME_DURATION_SLOW = 333  # 3 FPS

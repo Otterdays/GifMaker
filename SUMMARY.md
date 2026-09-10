@@ -1,7 +1,8 @@
 # 📋 Gif-Maker Project Summary
-*Last Updated: 2025-03-12*
+*Last Updated: 2026-09-10*
 
-> **Primary**: See [DOCS/SUMMARY.md](DOCS/SUMMARY.md) for canonical summary and quick links.
+> **Primary**: See [DOCS/SUMMARY.md](DOCS/SUMMARY.md) for canonical summary and quick links.  
+> **[AMENDED 2026-09-10]**: Canonical status is **v1.0.5** (Pillow `>=12.3.0,<13`, audit clean; see DOCS/SBOM.md inventory). Content below is historical — do not treat version numbers here as current.
 
 ## 🎯 Project Overview
 

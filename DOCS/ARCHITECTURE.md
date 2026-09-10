@@ -2,7 +2,8 @@
 
 # Gif-Maker Architecture Documentation
 
-*Version 1.0.3 - 2025-03-19* [AMENDED: package structure]
+*Version 1.0.3 - 2025-03-19* [AMENDED: package structure]  
+*[AMENDED 2026-09-10]: App version now **1.0.4** (Pillow `>=12.3.0,<13`). Package layout below unchanged.*
 
 ## Overview
 
@@ -279,6 +280,11 @@ class GIFMaker:
             self._recording_active = True
 ```
 
+[AMENDED 2026-09-10]: Lock now also guards `screenshots` mutate (append/clear/delete),
+`_encoding_active`, and encode uses `_snapshot_screenshots()` so Clear/Delete cannot
+tear the list mid-save. Clear/Delete disabled while busy. `WM_DELETE_WINDOW` → `on_close`
+stops recording / joins encode before destroy. GIF write is atomic (temp → `os.replace`).
+
 #### 2. Thread-Safe UI Updates
 
 ```python
@@ -299,9 +305,12 @@ self.recording_thread.start()
 
 ### Thread Communication
 
-- **State Flags**: `is_recording`, `_recording_active`
-- **Shared Data**: `screenshots` list (accessed with locks)
+- **State Flags**: `is_recording`, `_recording_active`, `_encoding_active`
+- **Shared Data**: `screenshots` list (accessed with locks; encode uses list snapshot)
 - **UI Updates**: Via `root.after()` for thread safety
+- **Shutdown**: `on_close` joins worker threads before `destroy`
+
+[AMENDED 2026-09-10 P1]: Preview collects new frame refs under `_lock`, builds thumbnails **outside** lock (append-only — no full rebuild per frame). Capture aborts after `MAX_CAPTURE_FAILURES` consecutive errors. UI hide delays use `root.after`, not `time.sleep`.
 
 ---
 

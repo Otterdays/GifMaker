@@ -1,6 +1,7 @@
 """GIF encoding and export logic."""
 
 import os
+import tempfile
 from typing import Callable, List
 
 from PIL import Image, ImageFilter
@@ -10,6 +11,33 @@ from gif_maker.core.quality_engine import (
     parse_quality_params,
     parse_speed_frame_duration,
 )
+
+
+def _atomic_save(images: List[Image.Image], output_path: str, **save_kwargs) -> None:
+    """Write GIF to a temp file in the same directory, then replace atomically.
+
+    Avoids truncated/corrupt output if the process is killed mid-save.
+    """
+    abs_path = os.path.abspath(output_path)
+    dir_name = os.path.dirname(abs_path) or "."
+    os.makedirs(dir_name, exist_ok=True)
+
+    fd, temp_path = tempfile.mkstemp(suffix=".gif", dir=dir_name)
+    os.close(fd)
+    try:
+        images[0].save(
+            temp_path,
+            save_all=True,
+            append_images=images[1:],
+            **save_kwargs,
+        )
+        os.replace(temp_path, abs_path)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
 
 
 def create_gif(
@@ -27,7 +55,13 @@ def create_gif(
         quality_label: UI quality selection string.
         speed_label: UI speed selection string.
         log_callback: Thread-safe logging function.
+
+    Raises:
+        ValueError: If screenshots list is empty.
     """
+    if not screenshots:
+        raise ValueError("No screenshots to encode")
+
     if not output_path.endswith(".gif"):
         output_path += ".gif"
 
@@ -77,10 +111,9 @@ def create_gif(
                 basic_quantized = img.quantize(colors=256, method=Image.MEDIANCUT)
                 quantized_images.append(basic_quantized.convert("RGB"))
 
-        quantized_images[0].save(
+        _atomic_save(
+            quantized_images,
             output_path,
-            save_all=True,
-            append_images=quantized_images[1:],
             duration=frame_duration,
             loop=0,
             optimize=False,
@@ -93,20 +126,18 @@ def create_gif(
             quantized = img.quantize(colors=256, method=Image.MEDIANCUT)
             quantized = quantized.convert("RGB")
             quantized_images.append(quantized)
-        quantized_images[0].save(
+        _atomic_save(
+            quantized_images,
             output_path,
-            save_all=True,
-            append_images=quantized_images[1:],
             duration=frame_duration,
             loop=0,
             optimize=False,
             dither=1,
         )
     else:
-        processed_screenshots[0].save(
+        _atomic_save(
+            processed_screenshots,
             output_path,
-            save_all=True,
-            append_images=processed_screenshots[1:],
             duration=frame_duration,
             loop=0,
             optimize=True,

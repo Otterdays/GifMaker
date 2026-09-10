@@ -1,7 +1,8 @@
 # 🧠 Gif-Maker Development Scratchpad
 *Version 0.02 - 2025-03-12*
 
-> **Primary**: See [DOCS/SCRATCHPAD.md](DOCS/SCRATCHPAD.md) for active tasks.
+> **Primary**: See [DOCS/SCRATCHPAD.md](DOCS/SCRATCHPAD.md) for active tasks.  
+> **[AMENDED 2026-09-10]**: Latest session (audit, SBOM, Pillow bump, v1.0.4) lives only in DOCS/SCRATCHPAD.md. Root file = historical notes.
 
 ## 🎯 Project Overview
 

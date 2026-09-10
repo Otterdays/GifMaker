@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gif-maker"
-version = "1.0.1"
+version = "1.0.7"
 description = "Professional Animated GIF Creation Tool"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "pyautogui>=0.9.54",
-    "Pillow>=10.4.0,<12",
+    "Pillow>=12.3.0,<13",
 ]
 
 [project.optional-dependencies]
