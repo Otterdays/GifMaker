@@ -4,6 +4,16 @@
 
 *Security tracking - update on every package install/remove*
 
+## 2026-09-10d - Desktop EXE build tool (optional)
+
+| Package | Version pin | Purpose | License | Audit |
+|---------|-------------|---------|---------|-------|
+| pyinstaller | >=6.0 | Optional — pack GUI into Windows EXE (`build-desktop-exe.bat`) | GPL-2.0 with exception / Apache-2.0 (bootloader) | Build-only; not shipped as runtime import |
+
+Listed under `pyproject.toml` `[project.optional-dependencies].build`. Bat installs it on demand via pip. **Not** a runtime dependency of Gif-Maker itself.
+
+---
+
 ## 2026-09-10c - Explicit pygetwindow (v1.0.8)
 
 *[P2#13 window picker now imports pygetwindow directly.]*

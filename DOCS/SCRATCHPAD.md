@@ -4,6 +4,22 @@
 
 *Active tasks, blockers, last 5 actions - NEVER delete, compact at 500 lines*
 
+## 2026-09-10 Session (Desktop EXE bat)
+
+### Active Tasks
+- [x] Add root `build-desktop-exe.bat` (PyInstaller onefile → Desktop)
+- [x] Optional `build` extra: `pyinstaller>=6.0`; SBOM note
+
+### Last 5 Actions
+1. Wrote `build-desktop-exe.bat` (venv-aware, OneDrive Desktop path)
+2. pyproject optional `[build]`; SBOM 2026-09-10d
+3. CHANGELOG Unreleased note
+
+### Next Steps
+- User run `build-desktop-exe.bat` once (first PyInstaller pull can take a few min)
+
+---
+
 ## 2026-09-10 Session (Simplified timing UX → v1.0.9)
 
 ### Active Tasks

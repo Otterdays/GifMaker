@@ -18,6 +18,9 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+build = [
+    "pyinstaller>=6.0",
+]
 
 [project.scripts]
 gif-maker = "gif_maker:main"

@@ -1,5 +1,13 @@
 # Gif-Maker V1.0 - Changelog
 
+## Unreleased
+
+### Added
+- `build-desktop-exe.bat` — PyInstaller onefile GUI build; copies `GifMaker.exe` to Desktop
+- Optional dep extra: `pip install -e ".[build]"` → `pyinstaller>=6.0`
+
+---
+
 ## Version 1.0.9 - Simplified capture / playback timing (2026-09-10)
 
 ### UX
