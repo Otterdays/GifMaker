@@ -4,6 +4,37 @@
 
 *Active tasks, blockers, last 5 actions - NEVER delete, compact at 500 lines*
 
+## 2026-09-10 Session (P2 polish — shipped partial → v1.0.7)
+
+### Claim (parallel-safe)
+- Owner: P2 agent — **#11 persist, #14 version UI, #15 tests**
+- Left alone: #12 cancel mid-encode, #13 real window picker (heavy GUI; other agents on main_window)
+- New files preferred over fighting P0/P1 in `gif_creator` / overlay code
+
+### Active Tasks
+- [x] P2#14 UI version → `gif_maker.version.__version__` (+ `version.py` SSOT)
+- [x] P2#11 Persist region/settings (`utils/settings_store.py` + load/save hooks)
+- [x] P2#15 Tests: thumbnail, region math, settings_store, quality path edges
+- [ ] P2#12 Cancel mid-encode (deferred)
+- [ ] P2#13 Real window picker (deferred)
+
+### Last 5 Actions
+1. Added `settings_store.py`, `region_math.py`, `version.py`
+2. Light `main_window` hooks: title version, load/save, region_math in selection/browser-size
+3. Tests: 3 new modules; full suite **45 passed**
+4. Bumped package to **1.0.7**; CHANGELOG + this claim
+5. Avoided rewrite of other agent's `test_gif_creator.py`
+
+### Blockers
+- None for shipped slice
+- Soft: `main_window.py` still shared — rebase if P1 still editing
+
+### Next Steps
+- Manual smoke: quit/reopen restores region + quality/speed/count
+- Later: cancel-encode flag in `create_gif`; pygetwindow-based picker
+
+---
+
 ## 2026-09-10 Session (SBOM inventory — docs agent)
 
 ### Claim (parallel-safe)
@@ -32,7 +63,7 @@
 ### Claim (parallel-safe)
 - Working **P1 only** — leave P0 encode/atomic + P2 settings/region_math alone
 - Touched: `gui/main_window.py` (surgical), `core/constants.py`, README shortcuts, ARCHITECTURE amend, CHANGELOG 1.0.6
-- Synced `gif_maker/version.py` → **1.0.6** (P2 SSOT; was stale 1.0.4)
+- Synced version via P2 SSOT `gif_maker/version.py` (live **1.0.7** after parallel bump; CHANGELOG P1 section kept as 1.0.6)
 
 ### Active Tasks
 - [x] Escape on region overlay: `focus_force` + `bind_all` Escape

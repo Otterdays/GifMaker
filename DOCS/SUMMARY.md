@@ -2,7 +2,7 @@
 
 # Gif-Maker Project Summary
 
-*Last Updated: 2026-09-10* [AMENDED: P0 reliability → v1.0.5]
+*Last Updated: 2026-09-10* [AMENDED: P2 polish partial → v1.0.7]
 
 ## Quick Links
 
@@ -57,12 +57,17 @@ GifMaker/
 
 ## Current Status
 
-- **Version**: 1.0.5
-- **Status**: Production Ready (P0 reliability 2026-09-10)
+- **Version**: 1.0.7
+- **Status**: Production Ready (P2 polish partial 2026-09-10)
 - **Platform**: Windows (primary), macOS/Linux compatible
-- **Tests**: 24 unit tests (`python -m pytest tests/`) — last run: all pass
+- **Tests**: 45 unit tests (`python -m pytest tests/`) — last run: all pass
 - **Security**: Pillow pin raised to `>=12.3.0,<13`; `pip-audit` clean on direct deps
 - **SBOM**: Full inventory pass 2026-09-10b (transitive versions/licenses + audit how-to) — see [SBOM.md](SBOM.md)
+
+### [AMENDED 2026-09-10] P2 polish partial (v1.0.7)
+- Persist region/settings (`~/.gifmaker/settings.json`); UI version SSOT; region_math helpers
+- New tests: settings_store, region_math, image_utils / quality paths
+- Deferred: cancel mid-encode, real window picker
 
 ### [AMENDED 2026-09-10] P0 reliability (v1.0.5)
 - Frame-list lock/snapshot; atomic GIF save; overwrite confirm; safe window close

@@ -1,5 +1,31 @@
 # Gif-Maker V1.0 - Changelog
 
+## Version 1.0.7 - P2 system polish (partial) (2026-09-10)
+
+### Settings / UX
+- Persist last region + settings to `~/.gifmaker/settings.json` (load on start, save on exit)
+- UI title/window use `gif_maker.version.__version__` (SSOT with `pyproject.toml`)
+- Quality combo default fixed to full label `MAX (100%)`
+
+### Helpers
+- `utils/settings_store.py` — sanitize / load / atomic save
+- `utils/region_math.py` — selection normalize, min-size check, center box
+- `gif_maker/version.py` — single version string (imported by package + GUI)
+
+### Testing
+- Added `test_settings_store.py`, `test_region_math.py`, `test_image_utils.py`
+  (thumbnail, 1-frame / High / MAX encode paths)
+- Suite: **45** pytest tests passed
+
+### Deferred (still P2)
+- Cancel mid-encode (#12)
+- Real window picker (#13) — browser-size remains centered placeholder
+
+### Packaging
+- Version bump: **1.0.7** (`pyproject.toml`, `gif_maker.version`)
+
+---
+
 ## Version 1.0.6 - P1 reliability / UX (2026-09-10)
 
 ### Reliability / UX
@@ -14,7 +40,7 @@
 - README keyboard shortcuts updated
 
 ### Packaging
-- Version bump: **1.0.6** (`pyproject.toml`, `gif_maker.__version__`)
+- Version bump targeted **1.0.6**; [AMENDED 2026-09-10]: parallel P2 bump set live SSOT to **1.0.7** (`gif_maker/version.py` + `pyproject.toml`) — P1 code ships in that line
 
 ---
 
