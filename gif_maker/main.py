@@ -1,8 +1,40 @@
 """Main entry point for the Gif-Maker application."""
 
+import platform
 import tkinter as tk
 
 from gif_maker.gui.main_window import GIFMaker
+from gif_maker.utils.app_logging import get_logger
+
+
+def _enable_windows_dpi_awareness() -> None:
+    """Make the process DPI-aware so the UI is crisp on high-DPI displays.
+
+    Must run before the Tk root is created. No-op on non-Windows platforms.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        try:
+            import ctypes
+
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
+def _apply_tk_scaling(root: tk.Tk) -> None:
+    """Scale Tk widgets to the display DPI so physical size stays correct."""
+    try:
+        dpi = root.winfo_fpixels("1i")
+        if dpi and dpi > 0:
+            root.tk.call("tk", "scaling", dpi / 72.0)
+    except Exception:
+        pass
 
 
 def main() -> None:
@@ -17,12 +49,11 @@ def main() -> None:
         input("Press Enter to exit...")
         return
 
-    root = tk.Tk()
-    app = GIFMaker(root)
+    get_logger().info("Gif-Maker starting")
+    _enable_windows_dpi_awareness()
 
-    root.update_idletasks()
-    x = (root.winfo_screenwidth() // 2) - (root.winfo_width() // 2)
-    y = (root.winfo_screenheight() // 2) - (root.winfo_height() // 2)
-    root.geometry(f"+{x}+{y}")
+    root = tk.Tk()
+    _apply_tk_scaling(root)
+    GIFMaker(root)  # centers itself during construction
 
     root.mainloop()

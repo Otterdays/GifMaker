@@ -4,23 +4,44 @@
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 700
 MIN_WIDTH = 900
-MIN_HEIGHT = 650
+MIN_HEIGHT = 600
 PREVIEW_MAX_SIZE = (350, 250)
 MIN_REGION_SIZE = 100
 
-# Color Scheme
-COLOR_BG_PRIMARY = "#2c3e50"
-COLOR_BG_SECONDARY = "#34495e"
-COLOR_ACCENT_RED = "#e74c3c"
-COLOR_ACCENT_GREEN = "#27ae60"
-COLOR_ACCENT_BLUE = "#3498db"
-COLOR_ACCENT_PURPLE = "#9b59b6"
-COLOR_ACCENT_ORANGE = "#e67e22"
-COLOR_ACCENT_YELLOW = "#f39c12"
-COLOR_TEXT_WHITE = "white"
-COLOR_TEXT_LIGHT = "#bdc3c7"
-COLOR_TEXT_LIGHTBLUE = "lightblue"
-COLOR_BROWSE = "#95a5a6"
+# Color Scheme — Google Material light theme
+COLOR_BG_PRIMARY = "#ffffff"  # window / card surface
+COLOR_BG_SECONDARY = "#f8f9fa"  # app background, tab + status strips
+COLOR_ACCENT_RED = "#d93025"
+COLOR_ACCENT_GREEN = "#188038"
+COLOR_ACCENT_BLUE = "#1a73e8"
+COLOR_ACCENT_PURPLE = "#9334e6"
+COLOR_ACCENT_ORANGE = "#e8710a"
+COLOR_ACCENT_YELLOW = "#f9ab00"
+COLOR_TEXT_WHITE = "#ffffff"  # foreground on filled accent buttons
+COLOR_TEXT_LIGHT = "#5f6368"
+COLOR_TEXT_LIGHTBLUE = "#1a73e8"
+COLOR_BROWSE = "#5f6368"
+
+# Extended UI palette — Material surfaces, borders & text tones
+COLOR_HEADER_BG = "#ffffff"  # app bar
+COLOR_BG_INPUT = "#ffffff"  # outlined text-field surface
+COLOR_SURFACE = "#f1f3f4"  # filled field / inactive tab surface
+COLOR_BORDER = "#dadce0"  # hairline dividers & field outlines
+COLOR_TEXT_PRIMARY = "#202124"  # primary body text
+COLOR_TEXT_SECONDARY = "#5f6368"  # secondary text / labels
+COLOR_TEXT_MUTED = "#80868b"  # hints + disabled foreground
+
+# Font Scheme — Segoe UI reads cleanly on Windows (Material-ish)
+FONT_FAMILY = "Segoe UI"
+FONT_MONO = ("Consolas", 9)
+FONT_TITLE = (FONT_FAMILY, 20, "bold")
+FONT_VERSION = (FONT_FAMILY, 11, "bold")
+FONT_SECTION = (FONT_FAMILY, 11, "bold")
+FONT_LABEL = (FONT_FAMILY, 10)
+FONT_INPUT = (FONT_FAMILY, 10)
+FONT_BUTTON = (FONT_FAMILY, 10, "bold")
+FONT_BUTTON_LARGE = (FONT_FAMILY, 11, "bold")
+FONT_HINT = (FONT_FAMILY, 8)
 
 # Timing Constants
 WINDOW_HIDE_DELAY = 0.5

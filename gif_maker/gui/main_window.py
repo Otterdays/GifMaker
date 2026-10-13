@@ -22,12 +22,28 @@ from gif_maker.core.constants import (
     COLOR_ACCENT_PURPLE,
     COLOR_ACCENT_RED,
     COLOR_ACCENT_YELLOW,
+    COLOR_BG_INPUT,
     COLOR_BG_PRIMARY,
     COLOR_BG_SECONDARY,
+    COLOR_BORDER,
     COLOR_BROWSE,
+    COLOR_HEADER_BG,
+    COLOR_SURFACE,
     COLOR_TEXT_LIGHT,
     COLOR_TEXT_LIGHTBLUE,
+    COLOR_TEXT_MUTED,
+    COLOR_TEXT_PRIMARY,
+    COLOR_TEXT_SECONDARY,
     COLOR_TEXT_WHITE,
+    FONT_BUTTON,
+    FONT_BUTTON_LARGE,
+    FONT_HINT,
+    FONT_INPUT,
+    FONT_LABEL,
+    FONT_MONO,
+    FONT_SECTION,
+    FONT_TITLE,
+    FONT_VERSION,
     MAX_CAPTURE_FAILURES,
     MIN_HEIGHT,
     MIN_WIDTH,
@@ -49,6 +65,7 @@ from gif_maker.core.quality_engine import (
     validate_settings_logic,
 )
 from gif_maker.utils.image_utils import make_thumbnail
+from gif_maker.utils.app_logging import get_logger
 from gif_maker.utils.region_math import (
     is_region_large_enough,
     selection_to_region,
@@ -96,6 +113,9 @@ class GIFMaker:
 
         # Create GUI
         self.create_widgets()
+
+        # Menu bar (File / Edit / Help)
+        self._build_menu()
 
         # Setup keyboard shortcuts
         self.setup_keyboard_shortcuts()
@@ -250,157 +270,373 @@ class GIFMaker:
             )
 
     def center_window(self) -> None:
-        """Center the window on the screen."""
+        """Center the window using its configured size.
+
+        Runs before widgets exist, so ``winfo_width`` can report 1 for an
+        unmapped window; fall back to the geometry constants to avoid the
+        window collapsing to a tiny size on launch.
+        """
         self.root.update_idletasks()
-        width = self.root.winfo_width()
-        height = self.root.winfo_height()
-        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.root.winfo_screenheight() // 2) - (height // 2)
+        width = max(self.root.winfo_width(), WINDOW_WIDTH)
+        height = max(self.root.winfo_height(), WINDOW_HEIGHT)
+        x = max(0, (self.root.winfo_screenwidth() - width) // 2)
+        y = max(0, (self.root.winfo_screenheight() - height) // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+    # --- Visual styling helpers (flat modern theme, no extra deps) ---------
+
+    @staticmethod
+    def _shade(hex_color: str, percent: int) -> str:
+        """Return a lightened (percent>0) or darkened (percent<0) hex color.
+
+        Falls back to the input unchanged for non-6-digit values (e.g. "white").
+        """
+        raw = hex_color.lstrip("#")
+        if len(raw) != 6:
+            return hex_color
+        try:
+            channels = [int(raw[i : i + 2], 16) for i in (0, 2, 4)]
+        except ValueError:
+            return hex_color
+        out = []
+        for value in channels:
+            adjusted = int(value + (value * percent / 100))
+            out.append(max(0, min(255, adjusted)))
+        return "#{:02x}{:02x}{:02x}".format(*out)
+
+    def _on_button_enter(self, event: "tk.Event") -> None:
+        """Darken a flat button while hovered (ignored when disabled)."""
+        widget = event.widget
+        if str(widget.cget("state")) == "disabled":
+            return
+        widget._hover_base = widget.cget("bg")
+        widget.config(bg=self._shade(widget.cget("bg"), -16))
+
+    def _on_button_leave(self, event: "tk.Event") -> None:
+        """Restore a flat button's background on hover-out."""
+        widget = event.widget
+        widget.config(bg=getattr(widget, "_hover_base", widget._base_bg))
+
+    def _make_button(
+        self,
+        parent: tk.Widget,
+        text: str,
+        command,
+        bg: str,
+        *,
+        font: tuple = FONT_BUTTON,
+        width: Optional[int] = None,
+        state: str = "normal",
+    ) -> tk.Button:
+        """Create a flat, hoverable accent button consistent with the theme."""
+        button = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=COLOR_TEXT_WHITE,
+            activebackground=self._shade(bg, -16),
+            activeforeground=COLOR_TEXT_WHITE,
+            disabledforeground=COLOR_TEXT_MUTED,
+            relief="flat",
+            bd=0,
+            highlightthickness=0,
+            font=font,
+            padx=16,
+            pady=8,
+            cursor="hand2",
+            width=width,
+            state=state,
+        )
+        button._base_bg = bg
+        button.bind("<Enter>", self._on_button_enter)
+        button.bind("<Leave>", self._on_button_leave)
+        return button
+
+    def _make_entry(
+        self, parent: tk.Widget, textvariable: tk.StringVar, width: int
+    ) -> tk.Entry:
+        """Create an outlined Material text field with a focus highlight."""
+        return tk.Entry(
+            parent,
+            textvariable=textvariable,
+            width=width,
+            bg=COLOR_BG_INPUT,
+            fg=COLOR_TEXT_PRIMARY,
+            insertbackground=COLOR_TEXT_PRIMARY,
+            relief="flat",
+            font=FONT_INPUT,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            highlightcolor=COLOR_ACCENT_BLUE,
+        )
+
+    def _make_label(
+        self,
+        parent: tk.Widget,
+        text: str,
+        *,
+        font: tuple = FONT_LABEL,
+        fg: str = COLOR_TEXT_PRIMARY,
+        bg: str = COLOR_BG_PRIMARY,
+        anchor: str = "w",
+        wraplength: Optional[int] = None,
+    ) -> tk.Label:
+        """Create a themed label bound to the current surface color."""
+        return tk.Label(
+            parent,
+            text=text,
+            font=font,
+            fg=fg,
+            bg=bg,
+            anchor=anchor,
+            wraplength=wraplength or 0,
+            justify="left",
+        )
+
+    def _make_section(
+        self, parent: tk.Widget, text: str
+    ) -> Tuple[tk.LabelFrame, tk.Frame]:
+        """Create a Material card (white surface, hairline border) + inner pad."""
+        frame = tk.LabelFrame(
+            parent,
+            text=text,
+            fg=COLOR_TEXT_SECONDARY,
+            bg=COLOR_BG_PRIMARY,
+            font=FONT_SECTION,
+            relief="groove",
+            bd=1,
+            highlightthickness=0,
+        )
+        inner = tk.Frame(frame, bg=COLOR_BG_PRIMARY, padx=16, pady=12)
+        inner.pack(fill="both", expand=True)
+        return frame, inner
+
+    def _configure_ttk_styles(self) -> None:
+        """Apply the Google Material light theme to ttk widgets + tabs."""
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("TFrame", background=COLOR_BG_PRIMARY)
+        style.configure(
+            "TLabel", background=COLOR_BG_PRIMARY, foreground=COLOR_TEXT_PRIMARY
+        )
+        # Material tabs: light strip, white selected tab, blue selected label
+        style.configure("TNotebook", background=COLOR_BG_SECONDARY, borderwidth=0)
+        style.configure(
+            "TNotebook.Tab",
+            background=COLOR_BG_SECONDARY,
+            foreground=COLOR_TEXT_SECONDARY,
+            padding=[20, 10],
+            font=FONT_BUTTON,
+            borderwidth=0,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", COLOR_BG_PRIMARY)],
+            foreground=[("selected", COLOR_ACCENT_BLUE)],
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=COLOR_BG_INPUT,
+            background=COLOR_BG_INPUT,
+            foreground=COLOR_TEXT_PRIMARY,
+            arrowcolor=COLOR_TEXT_SECONDARY,
+            bordercolor=COLOR_BORDER,
+            lightcolor=COLOR_BORDER,
+            darkcolor=COLOR_BORDER,
+            arrowsize=16,
+            padding=6,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", COLOR_BG_INPUT)],
+            foreground=[("readonly", COLOR_TEXT_PRIMARY)],
+            selectbackground=[("readonly", COLOR_BG_INPUT)],
+            selectforeground=[("readonly", COLOR_TEXT_PRIMARY)],
+            arrowcolor=[("disabled", COLOR_TEXT_MUTED)],
+        )
+        style.configure(
+            "Vertical.TScrollbar",
+            background=COLOR_BORDER,
+            troughcolor=COLOR_BG_PRIMARY,
+            bordercolor=COLOR_BG_PRIMARY,
+            arrowcolor=COLOR_TEXT_SECONDARY,
+        )
+        style.configure(
+            "Horizontal.TProgressbar",
+            troughcolor=COLOR_SURFACE,
+            background=COLOR_ACCENT_BLUE,
+            bordercolor=COLOR_SURFACE,
+            lightcolor=COLOR_ACCENT_BLUE,
+            darkcolor=COLOR_ACCENT_BLUE,
+            thickness=8,
+        )
 
     def create_widgets(self) -> None:
         """Create and configure all GUI widgets."""
-        # Modern ttk styling
-        style = ttk.Style()
-        style.theme_use("clam")
-        style.configure("TFrame", background=COLOR_BG_SECONDARY)
-        style.configure(
-            "TProgressbar",
-            troughcolor=COLOR_BG_PRIMARY,
-            background=COLOR_ACCENT_GREEN,
-        )
-        # Title
-        title_label = tk.Label(
-            self.root,
-            text=f"🎬 Gif-Maker V{__version__}",
-            font=("Arial", 20, "bold"),
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_PRIMARY,
-        )
-        title_label.pack(pady=10)
+        self._configure_ttk_styles()
 
-        # Main frame with side panel
-        main_frame = tk.Frame(self.root, bg=COLOR_BG_SECONDARY, padx=24, pady=24)
-        main_frame.pack(fill="both", expand=True)
-
-        # Create left and right panels
-        left_panel = tk.Frame(main_frame, bg=COLOR_BG_SECONDARY)
-        left_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
-
-        right_panel = tk.Frame(main_frame, bg=COLOR_BG_SECONDARY, width=400)
-        right_panel.pack(side="right", fill="y", padx=(10, 0))
-        right_panel.pack_propagate(False)  # Prevent shrinking
-
-        # Region selection frame
-        region_frame = tk.LabelFrame(
-            left_panel,
-            text="📐 Region Selection",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-            font=("Arial", 10, "bold"),
-        )
-        region_frame.pack(fill="x", pady=(0, 12))
-
-        # Region selection buttons
-        button_frame = tk.Frame(region_frame, bg=COLOR_BG_SECONDARY)
-        button_frame.pack(pady=10)
-
-        tk.Button(
-            button_frame,
-            text="Manual Coordinates",
-            command=self.select_region,
-            bg=COLOR_ACCENT_BLUE,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 10, "bold"),
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Full Screen",
-            command=self.select_fullscreen,
-            bg=COLOR_ACCENT_PURPLE,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 10, "bold"),
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Pick Window",
-            command=self.pick_window,
-            bg=COLOR_ACCENT_ORANGE,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 10, "bold"),
-        ).pack(side="left", padx=5)
-
-        self.region_label = tk.Label(
-            region_frame,
-            text="No region selected",
-            fg=COLOR_TEXT_LIGHT,
-            bg=COLOR_BG_SECONDARY,
-        )
-        self.region_label.pack()
-
-        # Settings frame
-        settings_frame = tk.LabelFrame(
-            left_panel,
-            text="⚙️ Settings",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-            font=("Arial", 10, "bold"),
-        )
-        settings_frame.pack(fill="x", pady=(0, 12))
-
-        # Screenshot count
+        # App bar: product name + version chip over a hairline divider
+        app_bar = tk.Frame(self.root, bg=COLOR_HEADER_BG)
+        app_bar.pack(fill="x")
         tk.Label(
-            settings_frame,
-            text="Number of Screenshots:",
-            fg=COLOR_TEXT_WHITE,
+            app_bar,
+            text="🎬 Gif-Maker",
+            font=FONT_TITLE,
+            fg=COLOR_TEXT_PRIMARY,
+            bg=COLOR_HEADER_BG,
+        ).pack(side="left", padx=(24, 8), pady=12)
+        tk.Label(
+            app_bar,
+            text=f"V{__version__}",
+            font=FONT_VERSION,
+            fg=COLOR_ACCENT_BLUE,
+            bg=COLOR_HEADER_BG,
+        ).pack(side="left", pady=12)
+        tk.Frame(self.root, bg=COLOR_BORDER, height=1).pack(fill="x")
+
+        # Persistent bottom status strip (visible on every tab)
+        status_strip = tk.Frame(self.root, bg=COLOR_BG_SECONDARY)
+        status_strip.pack(side="bottom", fill="x")
+        tk.Frame(self.root, bg=COLOR_BORDER, height=1).pack(side="bottom", fill="x")
+
+        self.count_display = self._make_label(
+            status_strip,
+            "Screenshots: 0",
             bg=COLOR_BG_SECONDARY,
-        ).grid(row=0, column=0, sticky="w", padx=10, pady=5)
+            fg=COLOR_TEXT_SECONDARY,
+            font=FONT_BUTTON,
+        )
+        self.count_display.pack(side="left", padx=(20, 12), pady=8)
+
+        self.progress = ttk.Progressbar(status_strip, mode="determinate")
+        self.progress.pack(side="left", fill="x", expand=True, padx=(0, 20), pady=8)
+
+        # Tabbed workspace — each view stays short so nothing clips on small screens
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True, padx=16, pady=12)
+
+        tab_capture = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
+        tab_settings = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
+        tab_preview = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
+        tab_activity = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
+        self.notebook.add(tab_capture, text="  Capture  ")
+        self.notebook.add(tab_settings, text="  Settings  ")
+        self.notebook.add(tab_preview, text="  Preview  ")
+        self.notebook.add(tab_activity, text="  Activity  ")
+
+        # --- Capture tab: region selection + primary actions ---
+        region_frame, region_inner = self._make_section(tab_capture, "Region Selection")
+        region_frame.pack(fill="x", padx=4, pady=(4, 12))
+
+        region_buttons = tk.Frame(region_inner, bg=COLOR_BG_PRIMARY)
+        region_buttons.pack(anchor="w")
+        self._make_button(
+            region_buttons, "Manual Coordinates", self.select_region, COLOR_ACCENT_BLUE
+        ).pack(side="left", padx=(0, 8))
+        self._make_button(
+            region_buttons, "Full Screen", self.select_fullscreen, COLOR_ACCENT_PURPLE
+        ).pack(side="left", padx=(0, 8))
+        self._make_button(
+            region_buttons, "Pick Window", self.pick_window, COLOR_ACCENT_ORANGE
+        ).pack(side="left")
+
+        self.region_label = self._make_label(
+            region_inner, "No region selected", fg=COLOR_TEXT_SECONDARY
+        )
+        self.region_label.pack(anchor="w", pady=(10, 0))
+
+        control_frame = tk.Frame(tab_capture, bg=COLOR_BG_PRIMARY)
+        control_frame.pack(fill="x", padx=4)
+
+        self.record_button = self._make_button(
+            control_frame,
+            "🎬 Start Recording",
+            self.toggle_recording,
+            COLOR_ACCENT_RED,
+            font=FONT_BUTTON_LARGE,
+        )
+        self.record_button.pack(side="left", padx=(0, 8))
+
+        self.create_button = self._make_button(
+            control_frame,
+            "🎞️ Create GIF",
+            self.create_gif,
+            COLOR_ACCENT_GREEN,
+            font=FONT_BUTTON_LARGE,
+            state="disabled",
+        )
+        self.create_button.pack(side="left", padx=(0, 8))
+
+        # Cancel encode (enabled only while GIF worker runs)
+        self.cancel_encode_button = self._make_button(
+            control_frame,
+            "⏹️ Cancel Encode",
+            self.request_encode_cancel,
+            COLOR_ACCENT_ORANGE,
+            font=FONT_BUTTON_LARGE,
+            state="disabled",
+        )
+        self.cancel_encode_button.pack(side="left", padx=(0, 8))
+
+        self.clear_button = self._make_button(
+            control_frame,
+            "🗑️ Clear",
+            self.clear_screenshots,
+            COLOR_ACCENT_YELLOW,
+            font=FONT_BUTTON_LARGE,
+        )
+        self.clear_button.pack(side="left")
+
+        # --- Settings tab ---
+        settings_frame, settings_inner = self._make_section(
+            tab_settings, "Recording Settings"
+        )
+        settings_frame.pack(fill="x", padx=4, pady=(4, 12))
+        settings_inner.columnconfigure(1, weight=1)
+
+        self._make_label(settings_inner, "Number of Screenshots:").grid(
+            row=0, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         self.count_var = tk.StringVar(value="10")
-        count_entry = tk.Entry(settings_frame, textvariable=self.count_var, width=10)
-        count_entry.grid(row=0, column=1, padx=10, pady=5)
+        self._make_entry(settings_inner, self.count_var, 10).grid(
+            row=0, column=1, sticky="w", pady=5
+        )
 
         # Capture rate (replaces raw interval — drives recording FPS)
-        tk.Label(
-            settings_frame,
-            text="Capture rate:",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-        ).grid(row=1, column=0, sticky="w", padx=10, pady=5)
+        self._make_label(settings_inner, "Capture rate:").grid(
+            row=1, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         self.capture_fps_var = tk.StringVar(value="5 FPS")
         self.interval_var = tk.StringVar(value="0.2")  # kept in sync for validate/persist
         capture_combo = ttk.Combobox(
-            settings_frame,
-            textvariable=self.capture_fps_var,
-            width=15,
-            state="readonly",
+            settings_inner, textvariable=self.capture_fps_var, width=15, state="readonly"
         )
         capture_combo["values"] = ("2 FPS", "5 FPS", "8 FPS", "10 FPS")
-        capture_combo.grid(row=1, column=1, padx=10, pady=5)
-        capture_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_timing_from_simple())
+        capture_combo.grid(row=1, column=1, sticky="w", pady=5)
+        capture_combo.bind(
+            "<<ComboboxSelected>>", lambda _e: self._sync_timing_from_simple()
+        )
 
-        # Output path
-        tk.Label(
-            settings_frame,
-            text="Output File:",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-        ).grid(row=2, column=0, sticky="w", padx=10, pady=5)
+        # Output path + browse
+        self._make_label(settings_inner, "Output File:").grid(
+            row=2, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         self.output_var = tk.StringVar(value="demo.gif")
-        output_entry = tk.Entry(settings_frame, textvariable=self.output_var, width=20)
-        output_entry.grid(row=2, column=1, padx=10, pady=5)
+        output_row = tk.Frame(settings_inner, bg=COLOR_BG_PRIMARY)
+        output_row.grid(row=2, column=1, sticky="w", pady=5)
+        self._make_entry(output_row, self.output_var, 22).pack(side="left")
+        self._make_button(
+            output_row, "Browse", self.browse_output, COLOR_BROWSE, font=FONT_LABEL
+        ).pack(side="left", padx=(8, 0))
 
         # Quality setting
-        tk.Label(
-            settings_frame,
-            text="Quality:",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-        ).grid(row=3, column=0, sticky="w", padx=10, pady=5)
+        self._make_label(settings_inner, "Quality:").grid(
+            row=3, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         self.quality_var = tk.StringVar(value="High (80%)")
         quality_combo = ttk.Combobox(
-            settings_frame, textvariable=self.quality_var, width=18, state="readonly"
+            settings_inner, textvariable=self.quality_var, width=18, state="readonly"
         )
         quality_combo["values"] = (
             "MAX (100%)",
@@ -408,157 +644,143 @@ class GIFMaker:
             "Medium (85%)",
             "Low (75%)",
         )
-        quality_combo.grid(row=3, column=1, padx=10, pady=5)
+        quality_combo.grid(row=3, column=1, sticky="w", pady=5)
 
-        quality_tips = tk.Label(
-            settings_frame,
-            text="High = best everyday look | MAX = pro demos | Medium/Low = smaller files",
+        self._make_label(
+            settings_inner,
+            "High = best everyday look | MAX = pro demos | Medium/Low = smaller files",
+            font=FONT_HINT,
             fg=COLOR_TEXT_LIGHTBLUE,
-            bg=COLOR_BG_SECONDARY,
-            font=("Arial", 8),
-            wraplength=320,
-        )
-        quality_tips.grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=2)
+            wraplength=520,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         # Playback feel (links capture timing → GIF frame duration)
-        tk.Label(
-            settings_frame,
-            text="Playback feel:",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-        ).grid(row=5, column=0, sticky="w", padx=10, pady=5)
+        self._make_label(settings_inner, "Playback feel:").grid(
+            row=5, column=0, sticky="w", padx=(0, 12), pady=5
+        )
         self.playback_feel_var = tk.StringVar(value=PLAYBACK_FEEL_MATCH)
         self.speed_var = tk.StringVar(value="Normal (5 FPS)")  # legacy persist mirror
         feel_combo = ttk.Combobox(
-            settings_frame,
-            textvariable=self.playback_feel_var,
-            width=22,
-            state="readonly",
+            settings_inner, textvariable=self.playback_feel_var, width=22, state="readonly"
         )
         feel_combo["values"] = PLAYBACK_FEEL_LABELS
-        feel_combo.grid(row=5, column=1, padx=10, pady=5)
-        feel_combo.bind("<<ComboboxSelected>>", lambda _e: self._sync_timing_from_simple())
-
-        self.timing_hint = tk.Label(
-            settings_frame,
-            text=describe_timing("5 FPS", PLAYBACK_FEEL_MATCH),
-            fg=COLOR_TEXT_LIGHTBLUE,
-            bg=COLOR_BG_SECONDARY,
-            font=("Arial", 8),
-            wraplength=320,
+        feel_combo.grid(row=5, column=1, sticky="w", pady=5)
+        feel_combo.bind(
+            "<<ComboboxSelected>>", lambda _e: self._sync_timing_from_simple()
         )
-        self.timing_hint.grid(row=6, column=0, columnspan=2, sticky="w", padx=10, pady=2)
 
-        tk.Button(
-            settings_frame,
-            text="Browse",
-            command=self.browse_output,
-            bg=COLOR_BROWSE,
-            fg=COLOR_TEXT_WHITE,
-        ).grid(row=2, column=2, padx=5, pady=5)
+        self.timing_hint = self._make_label(
+            settings_inner,
+            describe_timing("5 FPS", PLAYBACK_FEEL_MATCH),
+            font=FONT_HINT,
+            fg=COLOR_TEXT_LIGHTBLUE,
+            wraplength=520,
+        )
+        self.timing_hint.grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 2))
 
         self._sync_timing_from_simple()
 
-        # Control buttons frame
-        control_frame = tk.Frame(left_panel, bg=COLOR_BG_SECONDARY)
-        control_frame.pack(fill="x", pady=(0, 10))
+        # --- Preview tab ---
+        self.setup_preview_panel(tab_preview)
 
-        # Start/Stop recording button
-        self.record_button = tk.Button(
-            control_frame,
-            text="🎬 Start Recording",
-            command=self.toggle_recording,
-            bg=COLOR_ACCENT_RED,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 12, "bold"),
-            height=2,
-        )
-        self.record_button.pack(side="left", padx=(0, 10))
-
-        # Create GIF button
-        self.create_button = tk.Button(
-            control_frame,
-            text="🎞️ Create GIF",
-            command=self.create_gif,
-            bg=COLOR_ACCENT_GREEN,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 12, "bold"),
-            height=2,
-            state="disabled",
-        )
-        self.create_button.pack(side="left", padx=(0, 10))
-
-        # Cancel encode (enabled only while GIF worker runs)
-        self.cancel_encode_button = tk.Button(
-            control_frame,
-            text="⏹️ Cancel Encode",
-            command=self.request_encode_cancel,
-            bg=COLOR_ACCENT_ORANGE,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 12, "bold"),
-            height=2,
-            state="disabled",
-        )
-        self.cancel_encode_button.pack(side="left", padx=(0, 10))
-
-        # Clear button
-        self.clear_button = tk.Button(
-            control_frame,
-            text="🗑️ Clear",
-            command=self.clear_screenshots,
-            bg=COLOR_ACCENT_YELLOW,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 12, "bold"),
-            height=2,
-        )
-        self.clear_button.pack(side="left")
-
-        # Status frame
-        status_frame = tk.LabelFrame(
-            left_panel, text="📊 Status", fg=COLOR_TEXT_WHITE, bg=COLOR_BG_SECONDARY
-        )
-        status_frame.pack(fill="both", expand=True)
-
-        # Screenshot count display
-        self.count_display = tk.Label(
-            status_frame,
-            text="Screenshots: 0",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-            font=("Arial", 12),
-        )
-        self.count_display.pack(pady=5)
-
-        # Progress bar
-        self.progress = ttk.Progressbar(status_frame, mode="determinate")
-        self.progress.pack(fill="x", padx=10, pady=8)
-
-        # Status text
-        self.status_text = tk.Text(
-            status_frame,
-            height=6,
-            bg=COLOR_BG_PRIMARY,
-            fg=COLOR_TEXT_WHITE,
-            font=("Consolas", 9),
-        )
-        self.status_text.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # Preview panel
-        self.setup_preview_panel(right_panel)
-
-        # Scrollbar for status text
-        scrollbar = tk.Scrollbar(status_frame)
+        # --- Activity tab: rolling log ---
+        log_frame = tk.Frame(tab_activity, bg=COLOR_BG_PRIMARY, padx=4, pady=4)
+        log_frame.pack(fill="both", expand=True)
+        scrollbar = ttk.Scrollbar(log_frame, orient="vertical")
         scrollbar.pack(side="right", fill="y")
-        self.status_text.config(yscrollcommand=scrollbar.set)
+        self.status_text = tk.Text(
+            log_frame,
+            bg=COLOR_BG_PRIMARY,
+            fg=COLOR_TEXT_PRIMARY,
+            font=FONT_MONO,
+            relief="flat",
+            padx=10,
+            pady=8,
+            wrap="word",
+            insertbackground=COLOR_TEXT_PRIMARY,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            yscrollcommand=scrollbar.set,
+        )
+        self.status_text.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.status_text.yview)
 
     def setup_keyboard_shortcuts(self) -> None:
         """Setup keyboard shortcuts for common actions."""
-        self.root.bind("<space>", lambda e: self.toggle_recording())
+        self.root.bind("<space>", self._on_space_shortcut)
         self.root.bind("<Escape>", lambda e: self.cancel_if_recording())
-        self.root.bind("<Control-s>", lambda e: self.create_gif())
+        self.root.bind("<Control-s>", self._on_save_shortcut)
         # Ctrl+C kept free for OS copy; clear uses Ctrl+Shift+Delete
         self.root.bind("<Control-Shift-Delete>", lambda e: self.clear_screenshots())
+
+    def _is_text_entry_focused(self) -> bool:
+        """True when a text-editing widget holds focus (typing, not shortcut).
+
+        Global shortcuts like Space must not fire while the user is typing in
+        an Entry/Combobox/Text, or a stray space would toggle recording.
+        """
+        focused = self.root.focus_get()
+        return isinstance(focused, (tk.Entry, tk.Text, ttk.Combobox))
+
+    def _on_space_shortcut(self, event: Optional[tk.Event] = None) -> None:
+        """Space: toggle recording, unless the user is typing in a field."""
+        if self._is_text_entry_focused():
+            return
+        self.toggle_recording()
+
+    def _on_save_shortcut(self, event: Optional[tk.Event] = None) -> None:
+        """Ctrl+S: create GIF, unless the user is typing in a field."""
+        if self._is_text_entry_focused():
+            return
+        self.create_gif()
+
+    def show_shortcuts_dialog(self) -> None:
+        """Show the keyboard-shortcut reference dialog."""
+        messagebox.showinfo(
+            "Keyboard Shortcuts",
+            "Space — Start / Stop recording\n"
+            "Escape — Cancel recording or encode\n"
+            "Ctrl+S — Create GIF\n"
+            "Ctrl+Shift+Delete — Clear all screenshots",
+        )
+
+    def show_about_dialog(self) -> None:
+        """Show the About dialog with version and credits."""
+        messagebox.showinfo(
+            "About Gif-Maker",
+            f"Gif-Maker V{__version__}\n\n"
+            "Create high-quality animated GIFs from screen captures.\n"
+            "Built with Python, tkinter and Pillow.\n\n"
+            "Logs: ~/.gifmaker/logs/gifmaker.log",
+        )
+
+    def _build_menu(self) -> None:
+        """Create the application menu bar (File / Edit / Help)."""
+        menubar = tk.Menu(self.root, tearoff=0)
+
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Set Output File…", command=self.browse_output)
+        file_menu.add_command(
+            label="Open Output Folder",
+            command=lambda: self.open_file_location(self.output_var.get()),
+        )
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.on_close)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        edit_menu.add_command(
+            label="Delete Current Frame", command=self.delete_current_image
+        )
+        edit_menu.add_command(label="Clear All Screenshots", command=self.clear_screenshots)
+        menubar.add_cascade(label="Edit", menu=edit_menu)
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="Keyboard Shortcuts…", command=self.show_shortcuts_dialog)
+        help_menu.add_command(label="About Gif-Maker…", command=self.show_about_dialog)
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.root.config(menu=menubar)
 
     def cancel_if_recording(self, event: Optional[tk.Event] = None) -> None:
         """Escape: stop recording, or cancel in-progress GIF encode."""
@@ -586,107 +808,71 @@ class GIFMaker:
         Args:
             parent: The parent frame to attach the preview panel to.
         """
-        # Preview frame
-        preview_frame = tk.LabelFrame(
-            parent,
-            text="🖼️ Image Preview",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-        )
-        preview_frame.pack(fill="both", expand=True, pady=(0, 10))
+        preview_frame, preview_inner = self._make_section(parent, "Image Preview")
+        preview_frame.pack(fill="both", expand=True, padx=4, pady=(4, 4))
+        preview_inner.rowconfigure(0, weight=1)
+        preview_inner.columnconfigure(0, weight=1)
 
-        # Preview image display - make it fill the available space
+        # Image display fills the available vertical space
         self.preview_label = tk.Label(
-            preview_frame,
+            preview_inner,
             text="No images captured yet",
             bg=COLOR_BG_PRIMARY,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 10),
-            width=40,
-            height=20,
+            fg=COLOR_TEXT_SECONDARY,
+            font=FONT_LABEL,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
         )
-        self.preview_label.pack(fill="both", expand=True, padx=10, pady=10)
+        self.preview_label.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
 
         # Navigation controls
-        nav_frame = tk.Frame(preview_frame, bg=COLOR_BG_SECONDARY)
-        nav_frame.pack(fill="x", padx=10, pady=5)
+        nav_frame = tk.Frame(preview_inner, bg=COLOR_BG_PRIMARY)
+        nav_frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        nav_frame.columnconfigure(1, weight=1)
 
-        # Previous button
-        self.prev_button = tk.Button(
-            nav_frame,
-            text="◀",
-            command=self.prev_image,
-            state="disabled",
-            bg=COLOR_ACCENT_BLUE,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 12, "bold"),
-            width=3,
+        self.prev_button = self._make_button(
+            nav_frame, "◀", self.prev_image, COLOR_ACCENT_BLUE,
+            font=FONT_BUTTON, width=3, state="disabled",
         )
-        self.prev_button.pack(side="left", padx=2)
+        self.prev_button.grid(row=0, column=0)
 
-        # Image counter
-        self.image_counter = tk.Label(
-            nav_frame,
-            text="0/0",
-            bg=COLOR_BG_SECONDARY,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 10, "bold"),
+        self.image_counter = self._make_label(
+            nav_frame, "0/0", font=FONT_BUTTON, anchor="center"
         )
-        self.image_counter.pack(side="left", expand=True)
+        self.image_counter.grid(row=0, column=1, sticky="ew")
 
-        # Next button
-        self.next_button = tk.Button(
-            nav_frame,
-            text="▶",
-            command=self.next_image,
-            state="disabled",
-            bg=COLOR_ACCENT_BLUE,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 12, "bold"),
-            width=3,
+        self.next_button = self._make_button(
+            nav_frame, "▶", self.next_image, COLOR_ACCENT_BLUE,
+            font=FONT_BUTTON, width=3, state="disabled",
         )
-        self.next_button.pack(side="right", padx=2)
+        self.next_button.grid(row=0, column=2)
 
         # Image info
-        self.image_info = tk.Label(
-            preview_frame,
-            text="",
-            bg=COLOR_BG_SECONDARY,
-            fg=COLOR_TEXT_LIGHTBLUE,
-            font=("Arial", 8),
-            wraplength=280,
+        self.image_info = self._make_label(
+            preview_inner, "", font=FONT_HINT, fg=COLOR_TEXT_LIGHTBLUE, anchor="center"
         )
-        self.image_info.pack(padx=10, pady=5)
+        self.image_info.grid(row=2, column=0, sticky="ew", pady=(0, 6))
 
         # Action buttons
-        action_frame = tk.Frame(preview_frame, bg=COLOR_BG_SECONDARY)
-        action_frame.pack(fill="x", padx=10, pady=5)
+        action_frame = tk.Frame(preview_inner, bg=COLOR_BG_PRIMARY)
+        action_frame.grid(row=3, column=0, sticky="ew")
+        action_frame.columnconfigure(0, weight=1)
 
-        # Delete current image button
-        self.delete_button = tk.Button(
-            action_frame,
-            text="🗑️ Delete",
-            command=self.delete_current_image,
-            state="disabled",
-            bg=COLOR_ACCENT_RED,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 9),
+        self.delete_button = self._make_button(
+            action_frame, "🗑️ Delete", self.delete_current_image, COLOR_ACCENT_RED,
+            font=FONT_LABEL, state="disabled",
         )
-        self.delete_button.pack(side="left", padx=2)
+        self.delete_button.grid(row=0, column=0, sticky="w")
 
-        # Refresh preview button
-        self.refresh_button = tk.Button(
-            action_frame,
-            text="🔄 Refresh",
-            command=self.refresh_preview,
-            bg=COLOR_ACCENT_GREEN,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 9),
+        self.refresh_button = self._make_button(
+            action_frame, "🔄 Refresh", self.refresh_preview, COLOR_ACCENT_GREEN,
+            font=FONT_LABEL,
         )
-        self.refresh_button.pack(side="right", padx=2)
+        self.refresh_button.grid(row=0, column=1, sticky="e")
 
     def log(self, message: str) -> None:
-        """Add message to status log.
+        """Add message to the on-screen status log and the rotating file log.
 
         Args:
             message: The message to log.
@@ -694,7 +880,9 @@ class GIFMaker:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.status_text.insert(tk.END, f"[{timestamp}] {message}\n")
         self.status_text.see(tk.END)
-        self.root.update()
+        # Mirror to the file log for post-mortem debugging. No root.update():
+        # re-entering the event loop mid-handler is a classic Tk footgun.
+        get_logger().info(message)
 
     def log_thread_safe(self, message: str) -> None:
         """Thread-safe logging for background operations.
@@ -807,9 +995,14 @@ class GIFMaker:
             self.update_preview_display()
 
     def delete_current_image(self) -> None:
-        """Delete the currently displayed image."""
+        """Delete the currently displayed image (with confirmation)."""
         if self._is_busy():
             self.log("Cannot delete while recording or encoding")
+            return
+        if not messagebox.askyesno(
+            "Delete frame",
+            f"Delete frame {self.current_preview_index + 1}? This cannot be undone.",
+        ):
             return
         with self._lock:
             if not self.screenshots or self.current_preview_index >= len(
@@ -1356,7 +1549,7 @@ class GIFMaker:
         self._picked_windows = windows
         picker = tk.Toplevel(self.root)
         picker.title("Pick Window")
-        picker.configure(bg=COLOR_BG_SECONDARY)
+        picker.configure(bg=COLOR_BG_PRIMARY)
         picker.transient(self.root)
         picker.grab_set()
         self._window_picker = picker
@@ -1364,14 +1557,14 @@ class GIFMaker:
         tk.Label(
             picker,
             text="Select a window to capture:",
-            fg=COLOR_TEXT_WHITE,
-            bg=COLOR_BG_SECONDARY,
-            font=("Arial", 11, "bold"),
+            fg=COLOR_TEXT_PRIMARY,
+            bg=COLOR_BG_PRIMARY,
+            font=FONT_SECTION,
         ).pack(padx=12, pady=(12, 6))
 
-        list_frame = tk.Frame(picker, bg=COLOR_BG_SECONDARY)
+        list_frame = tk.Frame(picker, bg=COLOR_BG_PRIMARY)
         list_frame.pack(fill="both", expand=True, padx=12, pady=6)
-        scrollbar = tk.Scrollbar(list_frame)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
         scrollbar.pack(side="right", fill="y")
         listbox = tk.Listbox(
             list_frame,
@@ -1379,6 +1572,14 @@ class GIFMaker:
             height=14,
             yscrollcommand=scrollbar.set,
             exportselection=False,
+            bg=COLOR_BG_INPUT,
+            fg=COLOR_TEXT_PRIMARY,
+            selectbackground=COLOR_ACCENT_BLUE,
+            selectforeground=COLOR_TEXT_WHITE,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            font=FONT_LABEL,
         )
         listbox.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=listbox.yview)
@@ -1388,7 +1589,7 @@ class GIFMaker:
             listbox.insert(tk.END, label)
         listbox.selection_set(0)
 
-        btn_row = tk.Frame(picker, bg=COLOR_BG_SECONDARY)
+        btn_row = tk.Frame(picker, bg=COLOR_BG_PRIMARY)
         btn_row.pack(fill="x", padx=12, pady=(6, 12))
 
         def on_ok() -> None:
@@ -1408,28 +1609,14 @@ class GIFMaker:
             picker.destroy()
             self._window_picker = None
 
-        tk.Button(
-            btn_row,
-            text="Use Window",
-            command=on_ok,
-            bg=COLOR_ACCENT_GREEN,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 10, "bold"),
+        self._make_button(
+            btn_row, "Use Window", on_ok, COLOR_ACCENT_GREEN
         ).pack(side="left", padx=(0, 8))
-        tk.Button(
-            btn_row,
-            text="Cancel",
-            command=on_cancel,
-            bg=COLOR_BROWSE,
-            fg=COLOR_TEXT_WHITE,
-            font=("Arial", 10, "bold"),
+        self._make_button(
+            btn_row, "Cancel", on_cancel, COLOR_BROWSE
         ).pack(side="left")
         listbox.bind("<Double-Button-1>", lambda _e: on_ok())
         picker.protocol("WM_DELETE_WINDOW", on_cancel)
-
-    def select_browser_size(self) -> None:
-        """Deprecated alias — opens real window picker (P2#13)."""
-        self.pick_window()
 
     def browse_output(self) -> None:
         """Browse for output file with path validation."""
@@ -1608,6 +1795,14 @@ class GIFMaker:
         """
         if self._is_busy():
             self.log("Cannot clear while recording or encoding")
+            return
+
+        with self._lock:
+            frame_count = len(self.screenshots)
+        if frame_count and not messagebox.askyesno(
+            "Clear screenshots",
+            f"Discard all {frame_count} captured screenshots? This cannot be undone.",
+        ):
             return
 
         with self._lock:

@@ -6,6 +6,23 @@
 - `build-desktop-exe.bat` — PyInstaller onefile GUI build; copies `GifMaker.exe` to Desktop
 - Optional dep extra: `pip install -e ".[build]"` → `pyinstaller>=6.0`
 
+### UI / UX (visual polish + quality-of-life)
+- Modern flat dark theme: header band + accent rule, flat hover-darkening buttons,
+  themed entries/comboboxes/scrollbar/progressbar, Segoe UI font scale
+  (new palette + font constants in `core/constants.py`)
+- Fixed preview column clipping (pack fixed-width panel first; wrap long hint labels)
+- Robust `center_window()` (no pre-map `winfo_width()==1` collapse); default 1080x760
+- Menu bar (File / Edit / Help) with About + Keyboard-Shortcuts dialogs
+- Confirmation dialogs for destructive Clear-all and Delete-frame (STYLE_GUIDE)
+- Global shortcuts (Space / Ctrl+S) no longer fire while typing in a field
+- Windows DPI awareness + Tk scaling for crisp high-DPI rendering
+- Rotating file log `~/.gifmaker/logs/gifmaker.log` (`utils/app_logging.py`);
+  removed re-entrant `root.update()` from `log()`
+- Removed dead `select_browser_size` alias; dropped duplicate recenter in `main.py`
+
+### Testing
+- `tests/test_app_logging.py` (logger idempotency, `_shade` color math)
+
 ---
 
 ## Version 1.0.9 - Simplified capture / playback timing (2026-09-10)
