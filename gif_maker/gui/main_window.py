@@ -16,19 +16,6 @@ import time
 from PIL import ImageTk
 
 from gif_maker.core.constants import (
-    MIN_HEIGHT,
-    MIN_WIDTH,
-    SELECTION_CLOSE_DELAY,
-    WINDOW_HEIGHT,
-    WINDOW_HIDE_DELAY_MS,
-    WINDOW_WIDTH,
-)
-from gif_maker.core.theme import (
-    THEME_LABELS,
-    Theme,
-    resolve_theme_choice,
-)
-from gif_maker.core.constants import (
     FONT_BUTTON,
     FONT_BUTTON_LARGE,
     FONT_HINT,
@@ -39,7 +26,22 @@ from gif_maker.core.constants import (
     FONT_TITLE,
     FONT_VERSION,
     MAX_CAPTURE_FAILURES,
+    MIN_HEIGHT,
+    MIN_WIDTH,
+    SELECTION_CLOSE_DELAY,
+    TIMELINE_THUMB_SIZE,
+    TIMELINE_CANVAS_HEIGHT,
+    DEFAULT_FRAME_DURATION_MS,
+    WINDOW_HEIGHT,
+    WINDOW_HIDE_DELAY_MS,
+    WINDOW_WIDTH,
 )
+from gif_maker.core.theme import (
+    THEME_LABELS,
+    Theme,
+    resolve_theme_choice,
+)
+from gif_maker.core.frame_editor import FrameEditor
 from gif_maker.core.gif_creator import EncodeCancelled, create_gif
 from gif_maker.core.quality_engine import (
     PLAYBACK_FEEL_LABELS,
@@ -105,6 +107,8 @@ class GIFMaker:
         self.output_path = "demo.gif"
         self.current_preview_index = 0
         self.preview_images: List = []  # Store resized images for preview
+        self._frame_editor = FrameEditor()
+        self._timeline_photos: List = []  # ImageTk refs for timeline thumbnails
 
         # Create GUI
         self.create_widgets()
@@ -140,14 +144,9 @@ class GIFMaker:
             return list(self.screenshots)
 
     def _set_mutate_controls(self, enabled: bool) -> None:
-        """Enable/disable Clear + Delete while frames must stay stable."""
+        """Enable/disable Clear while frames must stay stable."""
         state = "normal" if enabled else "disabled"
         self.clear_button.config(state=state)
-        # Delete only when enabled and frames exist
-        if enabled and self.screenshots:
-            self.delete_button.config(state="normal")
-        else:
-            self.delete_button.config(state="disabled")
 
     def on_close(self) -> None:
         """Handle window close: stop recording, wait for encode, then destroy."""
@@ -721,11 +720,12 @@ class GIFMaker:
 
         tab_capture = tk.Frame(self.notebook, bg=self._theme.bg_primary)
         tab_settings = tk.Frame(self.notebook, bg=self._theme.bg_primary)
-        tab_preview = tk.Frame(self.notebook, bg=self._theme.bg_primary)
+        tab_editor = tk.Frame(self.notebook, bg=self._theme.bg_primary)
+        tab_preview = tab_editor  # alias for existing references
         tab_activity = tk.Frame(self.notebook, bg=self._theme.bg_primary)
         self.notebook.add(tab_capture, text="  Capture  ")
         self.notebook.add(tab_settings, text="  Settings  ")
-        self.notebook.add(tab_preview, text="  Preview  ")
+        self.notebook.add(tab_editor, text="  Editor  ")
         self.notebook.add(tab_activity, text="  Activity  ")
 
         # --- Capture tab: region selection + primary actions ---
@@ -939,10 +939,10 @@ class GIFMaker:
 
         self._sync_timing_from_simple()
 
-        # --- Preview tab ---
-        preview_page, preview_content = self._make_scroll_page(tab_preview)
-        preview_page.pack(fill="both", expand=True)
-        self.setup_preview_panel(preview_content)
+        # --- Editor tab ---
+        editor_page, editor_content = self._make_scroll_page(tab_editor)
+        editor_page.pack(fill="both", expand=True)
+        self._setup_editor_panel(editor_content)
 
         # --- Activity tab: rolling log ---
         log_frame = tk.Frame(tab_activity, bg=self._theme.bg_primary, padx=4, pady=4)
@@ -976,6 +976,13 @@ class GIFMaker:
         self.root.bind("<Control-s>", self._on_save_shortcut)
         # Ctrl+C kept free for OS copy; clear uses Ctrl+Shift+Delete
         self.root.bind("<Control-Shift-Delete>", lambda e: self.clear_screenshots())
+        # Editor shortcuts
+        self.root.bind("<Control-z>", self._undo_edit)
+        self.root.bind("<Control-y>", self._redo_edit)
+        self.root.bind("<Control-d>", self._duplicate_selected)
+        self.root.bind("<Delete>", lambda e: self._delete_selected_guarded(e))
+        self.root.bind("<Left>", self._navigate_prev)
+        self.root.bind("<Right>", self._navigate_next)
 
     def _is_text_entry_focused(self) -> bool:
         """True when a text-editing widget holds focus (typing, not shortcut).
@@ -998,14 +1005,26 @@ class GIFMaker:
             return
         self.create_gif()
 
+    def _delete_selected_guarded(self, event: Optional[tk.Event] = None) -> None:
+        """Delete key: remove selected frame (only when not typing)."""
+        if self._is_text_entry_focused():
+            return
+        self._delete_selected()
+
     def show_shortcuts_dialog(self) -> None:
         """Show the keyboard-shortcut reference dialog."""
         messagebox.showinfo(
             "Keyboard Shortcuts",
-            "Space — Start / Stop recording\n"
-            "Escape — Cancel recording or encode\n"
-            "Ctrl+S — Create GIF\n"
-            "Ctrl+Shift+Delete — Clear all screenshots",
+            "Space \u2014 Start / Stop recording\n"
+            "Escape \u2014 Cancel recording or encode\n"
+            "Ctrl+S \u2014 Create GIF\n"
+            "Ctrl+Shift+Delete \u2014 Clear all screenshots\n"
+            "\u2500\u2500\u2500 Editor \u2500\u2500\u2500\n"
+            "Ctrl+Z \u2014 Undo\n"
+            "Ctrl+Y \u2014 Redo\n"
+            "Ctrl+D \u2014 Duplicate frame\n"
+            "Delete \u2014 Delete frame\n"
+            "Left/Right \u2014 Navigate frames",
         )
 
     def show_about_dialog(self) -> None:
@@ -1028,7 +1047,17 @@ class GIFMaker:
 
         edit_menu = tk.Menu(menubar, tearoff=0)
         edit_menu.add_command(
-            label="Delete Current Frame", command=self.delete_current_image
+            label="Undo", command=self._undo_edit, accelerator="Ctrl+Z"
+        )
+        edit_menu.add_command(
+            label="Redo", command=self._redo_edit, accelerator="Ctrl+Y"
+        )
+        edit_menu.add_separator()
+        edit_menu.add_command(
+            label="Delete Current Frame", command=self._delete_selected
+        )
+        edit_menu.add_command(
+            label="Duplicate Frame", command=self._duplicate_selected, accelerator="Ctrl+D"
         )
         edit_menu.add_command(label="Clear All Screenshots", command=self.clear_screenshots)
         menubar.add_cascade(label="Edit", menu=edit_menu)
@@ -1060,9 +1089,9 @@ class GIFMaker:
                 "Choose how many pictures to take and how smooth the GIF looks.",
             ),
             2: (
-                "Preview",
-                "Renders LANCZOS-downsampled thumbnails of captured frames with per-frame delete.",
-                "Look through your pictures before making the GIF.",
+                "Editor",
+                "Timeline filmstrip with per-frame delete, duplicate, reorder, rotate, flip, trim, and duration override.",
+                "Fine-tune your frames before creating the GIF.",
             ),
             3: (
                 "Activity",
@@ -1197,20 +1226,83 @@ class GIFMaker:
         self.cancel_encode_button.config(state="disabled")
 
     def setup_preview_panel(self, parent: tk.Frame) -> None:
-        """Setup the image preview panel.
+        """Legacy alias; editor replaces this."""
+        pass
 
-        Args:
-            parent: The parent frame to attach the preview panel to.
-        """
-        preview_frame, preview_inner = self._make_section(parent, "Image Preview")
-        preview_frame.pack(fill="both", expand=True, padx=4, pady=(4, 4))
-        preview_inner.rowconfigure(0, weight=1)
-        preview_inner.columnconfigure(0, weight=1)
+    def _setup_editor_panel(self, parent: tk.Frame) -> None:
+        """Build the Editor tab: toolbar, preview, timeline, duration controls."""
+        editor_frame, editor_inner = self._make_section(parent, "Frame Editor")
+        editor_frame.pack(fill="both", expand=True, padx=4, pady=(4, 4))
 
-        # Image display fills the available vertical space
+        # --- Toolbar row 1: history + frame ops ---
+        tb1 = tk.Frame(editor_inner, bg=self._theme.bg_primary)
+        tb1.pack(fill="x", pady=(0, 4))
+        self._undo_btn = self._make_button(
+            tb1, "\u21b6 Undo", self._undo_edit, self._theme.text_secondary,
+            font=FONT_HINT, state="disabled",
+        )
+        self._undo_btn.pack(side="left", padx=(0, 4))
+        self._redo_btn = self._make_button(
+            tb1, "\u21b7 Redo", self._redo_edit, self._theme.text_secondary,
+            font=FONT_HINT, state="disabled",
+        )
+        self._redo_btn.pack(side="left", padx=(0, 12))
+        self._make_button(
+            tb1, "Del", self._delete_selected, self._theme.accent_red,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 4))
+        self._make_button(
+            tb1, "Dup", self._duplicate_selected, self._theme.accent_blue,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 4))
+        self._make_button(
+            tb1, "\u25c0", lambda: self._move_selected(-1), self._theme.text_secondary,
+            font=FONT_HINT, width=3,
+        ).pack(side="left", padx=(0, 2))
+        self._make_button(
+            tb1, "\u25b6", lambda: self._move_selected(1), self._theme.text_secondary,
+            font=FONT_HINT, width=3,
+        ).pack(side="left", padx=(0, 12))
+
+        # --- Toolbar row 2: transforms + trim + loop ---
+        tb2 = tk.Frame(editor_inner, bg=self._theme.bg_primary)
+        tb2.pack(fill="x", pady=(0, 8))
+        self._make_button(
+            tb2, "\u21ba90", lambda: self._rotate_selected(-90), self._theme.accent_orange,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 3))
+        self._make_button(
+            tb2, "\u21bb90", lambda: self._rotate_selected(90), self._theme.accent_orange,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 8))
+        self._make_button(
+            tb2, "Flip H", lambda: self._flip_selected(True), self._theme.accent_purple,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 4))
+        self._make_button(
+            tb2, "Flip V", lambda: self._flip_selected(False), self._theme.accent_purple,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 12))
+        self._make_button(
+            tb2, "Trim Head", lambda: self._trim_start(), self._theme.accent_yellow,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 4))
+        self._make_button(
+            tb2, "Trim Tail", lambda: self._trim_end(), self._theme.accent_yellow,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 12))
+        # Loop count
+        tk.Label(tb2, text="Loop:", font=FONT_HINT, bg=self._theme.bg_primary,
+                 fg=self._theme.text_secondary).pack(side="left", padx=(0, 2))
+        self._loop_var = tk.StringVar(value="0")
+        loop_combo = ttk.Combobox(tb2, textvariable=self._loop_var, width=4, state="readonly")
+        loop_combo["values"] = ("0", "1", "2", "3", "5", "10")
+        loop_combo.pack(side="left")
+
+        # --- Large preview ---
         self.preview_label = tk.Label(
-            preview_inner,
-            text="No images captured yet",
+            editor_inner,
+            text="No frames captured yet\nRecord on the Capture tab, then edit here.",
             bg=self._theme.bg_primary,
             fg=self._theme.text_secondary,
             font=FONT_LABEL,
@@ -1218,52 +1310,266 @@ class GIFMaker:
             highlightthickness=1,
             highlightbackground=self._theme.border,
         )
-        self.preview_label.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
+        self.preview_label.pack(fill="both", expand=True, pady=(0, 6))
 
-        # Navigation controls
-        nav_frame = tk.Frame(preview_inner, bg=self._theme.bg_primary)
-        nav_frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
-        nav_frame.columnconfigure(1, weight=1)
-
-        self.prev_button = self._make_button(
-            nav_frame, "◀", self.prev_image, self._theme.accent_blue,
-            font=FONT_BUTTON, width=3, state="disabled",
-        )
-        self.prev_button.grid(row=0, column=0)
-
+        # Frame counter + info row
+        info_row = tk.Frame(editor_inner, bg=self._theme.bg_primary)
+        info_row.pack(fill="x")
         self.image_counter = self._make_label(
-            nav_frame, "0/0", font=FONT_BUTTON, anchor="center"
+            info_row, "0/0", font=FONT_BUTTON, anchor="w"
         )
-        self.image_counter.grid(row=0, column=1, sticky="ew")
-
-        self.next_button = self._make_button(
-            nav_frame, "▶", self.next_image, self._theme.accent_blue,
-            font=FONT_BUTTON, width=3, state="disabled",
-        )
-        self.next_button.grid(row=0, column=2)
-
-        # Image info
+        self.image_counter.pack(side="left")
         self.image_info = self._make_label(
-            preview_inner, "", font=FONT_HINT, fg=self._theme.accent_blue, anchor="center"
+            info_row, "", font=FONT_HINT, fg=self._theme.accent_blue, anchor="e"
         )
-        self.image_info.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        self.image_info.pack(side="right")
 
-        # Action buttons
-        action_frame = tk.Frame(preview_inner, bg=self._theme.bg_primary)
-        action_frame.grid(row=3, column=0, sticky="ew")
-        action_frame.columnconfigure(0, weight=1)
-
-        self.delete_button = self._make_button(
-            action_frame, "🗑️ Delete", self.delete_current_image, self._theme.accent_red,
-            font=FONT_LABEL, state="disabled",
+        # --- Timeline filmstrip ---
+        self._timeline_canvas = tk.Canvas(
+            editor_inner,
+            height=TIMELINE_CANVAS_HEIGHT,
+            bg=self._theme.bg_secondary,
+            highlightthickness=1,
+            highlightbackground=self._theme.border,
+            cursor="hand2",
         )
-        self.delete_button.grid(row=0, column=0, sticky="w")
+        self._timeline_canvas.pack(fill="x", pady=(8, 4))
+        self._timeline_canvas.bind("<Configure>", lambda _e: self._draw_timeline())
+        self._timeline_canvas.bind("<Button-1>", self._on_timeline_click)
 
-        self.refresh_button = self._make_button(
-            action_frame, "🔄 Refresh", self.refresh_preview, self._theme.accent_green,
-            font=FONT_LABEL,
+        # --- Duration panel ---
+        dur_row = tk.Frame(editor_inner, bg=self._theme.bg_primary)
+        dur_row.pack(fill="x", pady=(4, 0))
+        tk.Label(
+            dur_row, text="Duration (ms):", font=FONT_HINT,
+            bg=self._theme.bg_primary, fg=self._theme.text_secondary,
+        ).pack(side="left", padx=(0, 6))
+        self._dur_var = tk.StringVar(value=str(DEFAULT_FRAME_DURATION_MS))
+        dur_spin = tk.Spinbox(
+            dur_row, from_=20, to=10000, increment=10,
+            textvariable=self._dur_var, width=6, font=FONT_INPUT,
+            bg=self._theme.bg_input, fg=self._theme.text_primary,
+            buttonbackground=self._theme.surface, relief="flat",
+            highlightthickness=1, highlightbackground=self._theme.border,
         )
-        self.refresh_button.grid(row=0, column=1, sticky="e")
+        dur_spin.pack(side="left", padx=(0, 8))
+        self._make_button(
+            dur_row, "Apply", self._apply_duration, self._theme.accent_green,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 6))
+        self._make_button(
+            dur_row, "Apply All", self._apply_duration_all, self._theme.accent_blue,
+            font=FONT_HINT,
+        ).pack(side="left", padx=(0, 12))
+        self._total_time_label = self._make_label(
+            dur_row, "", font=FONT_HINT, fg=self._theme.text_secondary
+        )
+        self._total_time_label.pack(side="left")
+
+        # Backward-compat: stubs for old code paths that toggle these button states.
+        # Editor tab replaces the old prev/next/delete/refresh workflow.
+        self.prev_button = tk.Frame(editor_inner)  # dummy, never packed
+        self.next_button = self.prev_button
+        self.delete_button = self.prev_button
+        self.refresh_button = self.prev_button
+
+    # --- Editor action methods -----------------------------------------------
+
+    def _after_edit(self) -> None:
+        """Refresh UI state after any editor operation."""
+        self._update_editor_buttons()
+        self._draw_timeline()
+        self._show_selected_frame()
+
+    def _update_editor_buttons(self) -> None:
+        """Enable/disable undo/redo based on history."""
+        state_u = "normal" if self._frame_editor.can_undo() else "disabled"
+        state_r = "normal" if self._frame_editor.can_redo() else "disabled"
+        self._undo_btn.config(state=state_u)
+        self._redo_btn.config(state=state_r)
+
+    def _undo_edit(self, _event=None) -> None:
+        if self._frame_editor.undo():
+            self._after_edit()
+            self.log("Undo")
+
+    def _redo_edit(self, _event=None) -> None:
+        if self._frame_editor.redo():
+            self._after_edit()
+            self.log("Redo")
+
+    def _delete_selected(self, _event=None) -> None:
+        if self._frame_editor.delete_selected():
+            self._after_edit()
+
+    def _duplicate_selected(self, _event=None) -> None:
+        if self._frame_editor.duplicate_selected():
+            self._after_edit()
+
+    def _move_selected(self, direction: int) -> None:
+        if self._frame_editor.move_selected(direction):
+            self._after_edit()
+
+    def _rotate_selected(self, degrees: int) -> None:
+        # Normalize -90 to 270
+        deg = degrees % 360
+        if self._frame_editor.rotate_selected(deg):
+            self._after_edit()
+
+    def _flip_selected(self, horizontal: bool) -> None:
+        if self._frame_editor.flip_selected(horizontal):
+            self._after_edit()
+
+    def _trim_start(self) -> None:
+        count = min(1, self._frame_editor.frame_count)
+        if count > 0 and self._frame_editor.trim_start(count):
+            self._after_edit()
+            self.log(f"Trimmed {count} frame(s) from start")
+
+    def _trim_end(self) -> None:
+        count = min(1, self._frame_editor.frame_count)
+        if count > 0 and self._frame_editor.trim_end(count):
+            self._after_edit()
+            self.log(f"Trimmed {count} frame(s) from end")
+
+    def _apply_duration(self) -> None:
+        try:
+            ms = int(self._dur_var.get())
+        except ValueError:
+            ms = DEFAULT_FRAME_DURATION_MS
+        if self._frame_editor.set_selected_duration(ms):
+            self._after_edit()
+
+    def _apply_duration_all(self) -> None:
+        try:
+            ms = int(self._dur_var.get())
+        except ValueError:
+            ms = DEFAULT_FRAME_DURATION_MS
+        if self._frame_editor.set_all_durations(ms):
+            self._after_edit()
+            self.log(f"Set all frames to {ms}ms")
+
+    def _navigate_prev(self, _event=None) -> None:
+        """Arrow Left: select previous frame in editor."""
+        if self._is_text_entry_focused():
+            return
+        idx = self._frame_editor.selected_index
+        if idx > 0:
+            self._frame_editor.select(idx - 1)
+            self._show_selected_frame()
+            self._draw_timeline()
+
+    def _navigate_next(self, _event=None) -> None:
+        """Arrow Right: select next frame in editor."""
+        if self._is_text_entry_focused():
+            return
+        idx = self._frame_editor.selected_index
+        if idx < self._frame_editor.frame_count - 1:
+            self._frame_editor.select(idx + 1)
+            self._show_selected_frame()
+            self._draw_timeline()
+
+    # --- Timeline drawing --------------------------------------------------
+
+    def _draw_timeline(self) -> None:
+        """Render mini-thumbnails in the timeline Canvas."""
+        canvas = self._timeline_canvas
+        canvas.delete("all")
+        frames = self._frame_editor.get_frames()
+        if not frames:
+            return
+        thumb_w, thumb_h = TIMELINE_THUMB_SIZE
+        padding = 4
+        total_w = (thumb_w + padding) * len(frames)
+        canvas.configure(scrollregion=(0, 0, max(total_w, canvas.winfo_width()), TIMELINE_CANVAS_HEIGHT))
+        self._timeline_photos = []  # release old refs
+        sel = self._frame_editor.selected_index
+        for i, frame in enumerate(frames):
+            x = i * (thumb_w + padding)
+            # Thumbnail
+            thumb = frame.copy()
+            thumb.thumbnail((thumb_w, thumb_h - 14))
+            photo = ImageTk.PhotoImage(thumb)
+            self._timeline_photos.append(photo)
+            canvas.create_image(x, 2, anchor="nw", image=photo)
+            # Index label
+            canvas.create_text(
+                x + thumb_w // 2, thumb_h - 5,
+                text=str(i + 1), font=("Segoe UI", 7),
+                fill=self._theme.text_secondary,
+            )
+            # Selection highlight
+            if i == sel:
+                canvas.create_rectangle(
+                    x - 1, 0, x + thumb_w + 1, thumb_h,
+                    outline=self._theme.accent_blue, width=2,
+                )
+
+    def _on_timeline_click(self, event: "tk.Event") -> None:
+        """Select a frame by clicking on the timeline."""
+        thumb_w, _ = TIMELINE_THUMB_SIZE
+        padding = 4
+        # Account for horizontal scroll offset
+        canvas_x = event.x + canvas_scroll_offset if hasattr(self, "_canvas_scroll_offset") else event.x
+        idx = canvas_x // (thumb_w + padding)
+        if 0 <= idx < self._frame_editor.frame_count:
+            self._frame_editor.select(idx)
+            self._show_selected_frame()
+            self._draw_timeline()
+
+    def _on_timeline_scroll(self, event: "tk.Event") -> None:
+        """Shift+MouseWheel scrolls timeline horizontally."""
+        canvas = self._timeline_canvas
+        if not hasattr(self, "_canvas_scroll_offset"):
+            self._canvas_scroll_offset = 0
+        delta = int(event.delta / 120) * (TIMELINE_THUMB_SIZE[0] + 4) * 3
+        max_offset = max(0, canvas.bbox("all")[2] - canvas.winfo_width()) if canvas.bbox("all") else 0
+        self._canvas_scroll_offset = max(0, min(max_offset, self._canvas_scroll_offset - delta))
+        canvas.xview("scroll", str(self._canvas_scroll_offset), "pixels")
+
+    # --- Frame display -----------------------------------------------------
+
+    def _show_selected_frame(self) -> None:
+        """Update the large preview + counter + info for the selected frame."""
+        frame = self._frame_editor.selected_frame()
+        count = self._frame_editor.frame_count
+        idx = self._frame_editor.selected_index
+        if frame is None:
+            self.preview_label.config(
+                image="", text="No frames captured yet\nRecord on the Capture tab, then edit here."
+            )
+            self.image_counter.config(text="0/0")
+            self.image_info.config(text="")
+            return
+        # Show thumbnail in large preview
+        thumb = frame.copy()
+        thumb.thumbnail((350, 250))
+        photo = ImageTk.PhotoImage(thumb)
+        self.preview_label.config(image=photo, text="")
+        self.preview_label.image = photo  # prevent GC
+        self.image_counter.config(text=f"Frame {idx + 1} / {count}")
+        dur = self._frame_editor.selected_duration() or DEFAULT_FRAME_DURATION_MS
+        self.image_info.config(
+            text=f"Size: {frame.width}x{frame.height}  Duration: {dur}ms"
+        )
+        # Update duration spinbox
+        self._dur_var.set(str(dur))
+        # Total playback estimate
+        durations = self._frame_editor.get_durations()
+        total_ms = sum(durations)
+        self._total_time_label.config(text=f"Total: {total_ms}ms ({total_ms / 1000:.1f}s)")
+
+    def _load_frames_into_editor(self) -> None:
+        """Sync recorded screenshots into the FrameEditor."""
+        from gif_maker.core.quality_engine import resolve_frame_duration_ms
+        fps_label = getattr(self, "capture_fps_var", None)
+        feel_label = getattr(self, "playback_feel_var", None)
+        if fps_label and feel_label:
+            duration = resolve_frame_duration_ms(feel_label.get(), float(fps_to_interval(parse_capture_fps(fps_label.get()))))
+        else:
+            duration = DEFAULT_FRAME_DURATION_MS
+        self._frame_editor.load_frames(self.screenshots, default_ms=duration)
+        self._after_edit()
 
     def log(self, message: str) -> None:
         """Add message to the on-screen status log and the rotating file log.
@@ -1322,9 +1628,6 @@ class GIFMaker:
             self.preview_label.config(text="No images captured yet")
             self.image_counter.config(text="0/0")
             self.image_info.config(text="")
-            self.prev_button.config(state="disabled")
-            self.next_button.config(state="disabled")
-            self.delete_button.config(state="disabled")
             return
 
         if new_frames == "rebuild":
@@ -1364,17 +1667,6 @@ class GIFMaker:
         original = self.screenshots[self.current_preview_index]
         info_text = f"Size: {original.width}x{original.height}\nMode: {original.mode}"
         self.image_info.config(text=info_text)
-
-        # Update button states
-        self.prev_button.config(
-            state="normal" if self.current_preview_index > 0 else "disabled"
-        )
-        self.next_button.config(
-            state="normal"
-            if self.current_preview_index < len(self.screenshots) - 1
-            else "disabled"
-        )
-        self.delete_button.config(state="normal")
 
     def prev_image(self) -> None:
         """Show previous image."""
@@ -2124,6 +2416,10 @@ class GIFMaker:
         self.root.deiconify()
         self.log("Window restored after recording")
 
+        # Load frames into the editor
+        if self.screenshots:
+            self._load_frames_into_editor()
+
     def record_screenshots(self) -> None:
         """Record screenshots in a loop (thread-safe).
 
@@ -2227,6 +2523,8 @@ class GIFMaker:
         self.count_display.config(text="Screenshots: 0")
         self.progress["value"] = 0
         self.create_button.config(state="disabled")
+        self._frame_editor.reset()
+        self._after_edit()
         self.log("Screenshots cleared")
         self.refresh_preview()
 
@@ -2241,7 +2539,12 @@ class GIFMaker:
             messagebox.showinfo("Busy", "Wait for recording or encode to finish.")
             return
 
-        frames = self._snapshot_screenshots()
+        # Prefer edited frames from the editor; fall back to raw screenshots
+        editor_frames = self._frame_editor.get_frames()
+        if editor_frames:
+            frames = list(editor_frames)
+        else:
+            frames = self._snapshot_screenshots()
         if not frames:
             messagebox.showerror("Error", "No screenshots to create GIF from!")
             return
@@ -2299,6 +2602,13 @@ class GIFMaker:
             frames: Snapshot of PIL images (stable for this encode).
             output_path: Resolved .gif output path.
         """
+        # Gather per-frame durations from the editor (if populated)
+        editor_durations = self._frame_editor.get_durations()
+        per_frame_ms = editor_durations if len(editor_durations) == len(frames) else None
+        try:
+            loop_val = int(self._loop_var.get())
+        except (ValueError, AttributeError):
+            loop_val = 0
         try:
             create_gif(
                 screenshots=frames,
@@ -2311,6 +2621,8 @@ class GIFMaker:
                     self.playback_feel_var.get(),
                     float(self.interval_var.get()),
                 ),
+                per_frame_durations_ms=per_frame_ms,
+                loop_count=loop_val,
             )
 
             def enable_buttons():

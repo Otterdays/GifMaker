@@ -34,7 +34,7 @@ def app():
 class TestShell:
     def test_four_tabs_present(self, app) -> None:
         texts = [app.notebook.tab(t, "text").strip() for t in app.notebook.tabs()]
-        assert texts == ["Capture", "Settings", "Preview", "Activity"]
+        assert texts == ["Capture", "Settings", "Editor", "Activity"]
 
     def test_menu_bar_attached(self, app) -> None:
         assert app.root.cget("menu")

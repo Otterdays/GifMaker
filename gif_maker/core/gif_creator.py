@@ -57,6 +57,8 @@ def create_gif(
     log_callback: Callable[[str], None],
     cancel_check: Optional[Callable[[], bool]] = None,
     frame_duration_ms: Optional[int] = None,
+    per_frame_durations_ms: Optional[List[int]] = None,
+    loop_count: int = 0,
 ) -> None:
     """Create animated GIF from screenshots.
 
@@ -66,8 +68,10 @@ def create_gif(
         quality_label: UI quality selection string.
         speed_label: UI speed selection string (used if frame_duration_ms unset).
         log_callback: Thread-safe logging function.
-        cancel_check: Optional callable; True → raise EncodeCancelled.
-        frame_duration_ms: Optional explicit GIF frame duration (ms).
+        cancel_check: Optional callable; True -> raise EncodeCancelled.
+        frame_duration_ms: Optional explicit GIF frame duration (ms) uniform.
+        per_frame_durations_ms: Optional per-frame duration list (overrides uniform).
+        loop_count: 0=infinite, 1=play once, N=repeat N times.
 
     Raises:
         ValueError: If screenshots list is empty.
@@ -82,6 +86,13 @@ def create_gif(
     frame_duration = parse_speed_frame_duration(speed_label)
     if frame_duration_ms is not None:
         frame_duration = max(20, int(frame_duration_ms))
+
+    # Determine effective duration: per-frame list takes priority over scalar
+    if per_frame_durations_ms is not None and len(per_frame_durations_ms) == len(screenshots):
+        effective_duration = per_frame_durations_ms
+    else:
+        effective_duration = frame_duration
+
     quality_params = parse_quality_params(quality_label)
     quality = quality_params["quality"]
     method = quality_params["method"]
@@ -90,7 +101,13 @@ def create_gif(
     quality_prefix = get_quality_prefix(quality_label)
 
     log_callback(f"Creating GIF with {quality_label} quality settings...")
-    log_callback(f"Frame duration: {frame_duration}ms (~{1000 / frame_duration:.1f} FPS)")
+    if isinstance(effective_duration, list):
+        log_callback(
+            f"Per-frame durations: {len(effective_duration)} entries, "
+            f"total {sum(effective_duration)}ms"
+        )
+    else:
+        log_callback(f"Frame duration: {effective_duration}ms (~{1000 / effective_duration:.1f} FPS)")
 
     processed_screenshots = []
     for screenshot in screenshots:
@@ -135,8 +152,8 @@ def create_gif(
         _atomic_save(
             quantized_images,
             output_path,
-            duration=frame_duration,
-            loop=0,
+            duration=effective_duration,
+            loop=loop_count,
             optimize=False,
             quality=quality,
             dither=1,
@@ -152,8 +169,8 @@ def create_gif(
         _atomic_save(
             quantized_images,
             output_path,
-            duration=frame_duration,
-            loop=0,
+            duration=effective_duration,
+            loop=loop_count,
             optimize=False,
             dither=1,
         )
@@ -162,8 +179,8 @@ def create_gif(
         _atomic_save(
             processed_screenshots,
             output_path,
-            duration=frame_duration,
-            loop=0,
+            duration=effective_duration,
+            loop=loop_count,
             optimize=True,
             quality=quality,
             method=method,

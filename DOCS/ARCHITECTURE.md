@@ -705,3 +705,97 @@ gif_maker/
 |   |-- settings_store.py   # Persists "theme" key
 |-- ...
 ```
+
+---
+
+## Frame Editor Architecture [AMENDED 2026-10-13]
+
+### Overview
+
+The "Preview" tab was replaced with a full **Editor** tab providing professional frame-editing: a horizontal filmstrip timeline, editing toolbar, per-frame duration override, and undo/redo via the Command pattern.
+
+### Design
+
+```
+gif_maker/core/frame_editor.py
+|
+|-- EditorState          # Mutable: frames[] + durations[] + selected_index
+|-- EditCommand (base)   # redo() / undo() interface
+|-- DeleteFrame          # Remove at index (stores frame for undo)
+|-- DuplicateFrame       # Insert copy after index
+|-- MoveFrame            # Swap with neighbor (from_idx -> to_idx)
+|-- TransformFrame       # Rotate or flip (stores original for undo)
+|-- TrimStart / TrimEnd  # Remove N frames from head/tail
+|-- SetDuration          # Change per-frame display time
+|-- SetAllDurations      # Uniform duration across all frames
+|-- FrameEditor          # Dispatcher: MAX_HISTORY=40, undo/redo stacks
+```
+
+### GUI Integration (main_window.py)
+
+The Editor tab contains:
+
+1. **Toolbar row 1**: Undo, Redo, Delete, Duplicate, Move Left, Move Right
+2. **Toolbar row 2**: Rotate 90 CCW/CW, Flip H/V, Trim Head/Tail, Loop count combobox
+3. **Large preview**: Selected frame displayed at up to 350x250
+4. **Timeline filmstrip**: tk.Canvas (72x48 thumbnails) — click to select frame
+5. **Duration panel**: Spinbox for per-frame ms + "Apply" / "Apply All" buttons + total time label
+
+### Data Flow
+
+``
+Recording completes
+    |
+    v
+stop_recording() -> _load_frames_into_editor()
+    |
+    v
+FrameEditor.state.frames = screenshots (shared refs)
+FrameEditor.state.durations = [default_ms] * N
+    |
+    v
+User edits frames (delete, reorder, transform, set duration)
+    |
+    v
+create_gif() -> _frame_editor.get_frames() + get_durations()
+    |
+    v
+create_gif(per_frame_durations_ms=[...], loop_count=N)
+    |
+    v
+PIL save: duration=[...] accepts per-frame timing natively
+```
+
+### Keyboard Shortcuts (Editor)
+
+| Key | Action |
+|-----|--------|
+| Ctrl+Z | Undo |
+| Ctrl+Y | Redo |
+| Ctrl+D | Duplicate frame |
+| Delete | Delete frame |
+| Left/Right | Navigate timeline |
+
+### Encoder Changes
+
+`gif_creator.py` now accepts:
+- `per_frame_durations_ms: List[int]` — overrides uniform duration
+- `loop_count: int` — 0=infinite (default), 1=play once, N=repeat
+
+The `duration` parameter passed to PIL can be a list or scalar; Pillow GIF
+writer handles both natively.
+
+### Package layout update
+
+```
+gif_maker/
+|-- core/
+|   |-- frame_editor.py      # NEW: command-pattern editing + undo/redo
+|   |-- gif_creator.py       # Enhanced: per_frame_durations_ms + loop_count
+|   |-- ...
+|-- gui/
+|   |-- main_window.py       # _setup_editor_panel, timeline, toolbar
+|-- ...
+tests/
+|   |-- test_frame_editor.py # NEW: 30 tests for editing logic
+```
