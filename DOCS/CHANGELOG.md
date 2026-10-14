@@ -23,6 +23,61 @@
 ### Testing
 - `tests/test_app_logging.py` (logger idempotency, `_shade` color math)
 
+### Redesign: tabbed Material (Google-flavored) UI
+- **Tabbed workspace** (`ttk.Notebook`): Capture / Settings / Preview / Activity.
+  Each view stays short, so nothing clips at small startup window sizes.
+- **Google Material light theme**: white surfaces, `#f8f9fa` strips, `#dadce0`
+  hairlines, Google accent palette (`#1a73e8` blue, `#d93025` red, `#188038`
+  green, `#f9ab00` yellow), dark `#202124` body text.
+- **Persistent bottom status strip** (screenshot count + progress) visible on
+  every tab.
+- Window-picker dialog restyled to the light theme; default size 1000x700.
+- **Tab hover cards**: stylized tooltip per tab (accent bar + title + one
+  technical sentence + one consumer-friendly sentence), shown on tab-strip
+  hover via `notebook.bbox` hit-testing; dismissed on leave/click/tab-change.
+- **Output location in Settings**: read-only resolved "Output folder" label +
+  "Open Folder" button, kept in sync with the output path via a `trace`.
+- **Scrollable tab pages** (`_make_scroll_page`): Capture / Settings / Preview
+  sit on a canvas page whose vertical scrollbar appears only when content is
+  taller than the visible page; content stretches to fill spare room and the
+  mouse wheel scrolls while the pointer is over a page.
+
+### No-debt pass (tests + cleanup)
+- **Tooltip fix**: micro-moves no longer re-arm the dwell timer (card now
+  appears while the pointer is in motion); dwell 250ms; zero-size tab boxes
+  (unmapped) are ignored; build wrapped so hover can never crash the UI.
+- **Dead code removed**: `region_math.center_region`, `window_picker.filter_windows`,
+  `constants.WINDOW_HIDE_DELAY` (all unreferenced by the app).
+- **Efficiency**: `estimate_gif_size_logic` computes raw pixel bytes arithmetically
+  (`w*h*bands`) instead of allocating a full `tobytes()` buffer per frame.
+- **Tests**: new `tests/test_gui_shell.py` (tabs, menu, scroll canvases, tooltip
+  lifecycle/content, output-folder sync, shortcut guard); region/window-picker
+  tests updated for the removed helpers. Suite: **80 passed, `-W error` clean**.
+- **Menu bar trimmed to Edit / Help**: removed the redundant File menu (its
+  Set Output / Open Folder actions live in the Settings tab; Exit duplicates
+  the window close button, which already runs the safe-shutdown handler).
+- **Tooltip root-cause fix**: on this Windows Tk build `notebook.bbox()` returns
+  degenerate `(0,0,0,0)` boxes for every tab, so the bbox hit-test never matched
+  and no card ever appeared. Hit-testing now uses `notebook.index("@x,y")`
+  (verified working) and Motion is bound on the root window (in every child's
+  binding-tag chain) with screen-coord → notebook-coord conversion.
+  Regression test `test_hover_chain_shows_then_hides` drives real-coordinate
+  Motion and asserts show + dismiss. Suite: **81 passed, `-W error` clean**.
+- **Wheel-router fix**: scrolling now works anywhere inside a tab page, including
+  over labels/entries/combos. The old Enter/Leave arming disarmed the wheel
+  whenever the pointer crossed into a child widget (Tk fires `<Leave>` on a
+  frame at every child boundary). Replaced with a single window-wide
+  `<MouseWheel>` router (`_on_mousewheel`) that resolves the widget under the
+  cursor via `winfo_containing` and walks up its master chain to the owning
+  scroll page; 24px per notch. Regression test
+  `test_wheel_over_child_widget_scrolls`. Suite: **82 passed, `-W error` clean**.
+- **Trackpad fix**: precision trackpads emit small wheel deltas (|delta| < 120)
+  that truncated to zero under whole-notch math, so trackpad gestures scrolled
+  nothing. Wheel routing is now proportional (0.2px per delta unit, 24px per
+  120-delta notch) with a per-canvas fractional accumulator, so small deltas
+  build up into movement. Test asserts the exact step math `[24, 12, 12, -24]`
+  deterministically (stubbed `yview_scroll`, no window-manager dependence).
+
 ---
 
 ## Version 1.0.9 - Simplified capture / playback timing (2026-09-10)

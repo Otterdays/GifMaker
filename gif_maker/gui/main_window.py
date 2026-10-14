@@ -16,25 +16,19 @@ import time
 from PIL import ImageTk
 
 from gif_maker.core.constants import (
-    COLOR_ACCENT_BLUE,
-    COLOR_ACCENT_GREEN,
-    COLOR_ACCENT_ORANGE,
-    COLOR_ACCENT_PURPLE,
-    COLOR_ACCENT_RED,
-    COLOR_ACCENT_YELLOW,
-    COLOR_BG_INPUT,
-    COLOR_BG_PRIMARY,
-    COLOR_BG_SECONDARY,
-    COLOR_BORDER,
-    COLOR_BROWSE,
-    COLOR_HEADER_BG,
-    COLOR_SURFACE,
-    COLOR_TEXT_LIGHT,
-    COLOR_TEXT_LIGHTBLUE,
-    COLOR_TEXT_MUTED,
-    COLOR_TEXT_PRIMARY,
-    COLOR_TEXT_SECONDARY,
-    COLOR_TEXT_WHITE,
+    MIN_HEIGHT,
+    MIN_WIDTH,
+    SELECTION_CLOSE_DELAY,
+    WINDOW_HEIGHT,
+    WINDOW_HIDE_DELAY_MS,
+    WINDOW_WIDTH,
+)
+from gif_maker.core.theme import (
+    THEME_LABELS,
+    Theme,
+    resolve_theme_choice,
+)
+from gif_maker.core.constants import (
     FONT_BUTTON,
     FONT_BUTTON_LARGE,
     FONT_HINT,
@@ -45,12 +39,6 @@ from gif_maker.core.constants import (
     FONT_TITLE,
     FONT_VERSION,
     MAX_CAPTURE_FAILURES,
-    MIN_HEIGHT,
-    MIN_WIDTH,
-    SELECTION_CLOSE_DELAY,
-    WINDOW_HEIGHT,
-    WINDOW_HIDE_DELAY_MS,
-    WINDOW_WIDTH,
 )
 from gif_maker.core.gif_creator import EncodeCancelled, create_gif
 from gif_maker.core.quality_engine import (
@@ -86,7 +74,14 @@ class GIFMaker:
         self.root.title(f"Gif-Maker V{__version__}")
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
-        self.root.configure(bg=COLOR_BG_PRIMARY)
+
+        # Resolve theme BEFORE any widget creation
+        self._settings_data = load_settings()
+        theme_pref = self._settings_data.get("theme", "system")
+        self._theme: Theme = resolve_theme_choice(theme_pref)
+        self._theme_pref: str = theme_pref
+
+        self.root.configure(bg=self._theme.bg_primary)
 
         # Thread safety — lock guards screenshots + busy flags
         self._lock = threading.Lock()
@@ -196,7 +191,7 @@ class GIFMaker:
 
     def _load_persisted_settings(self) -> None:
         """Apply saved region + form fields from ~/.gifmaker/settings.json."""
-        data = load_settings()
+        data = self._settings_data
         region = data.get("region")
         if isinstance(region, list) and len(region) == 4:
             try:
@@ -242,6 +237,7 @@ class GIFMaker:
                     "speed": self.speed_var.get(),
                     "capture_fps": self.capture_fps_var.get(),
                     "playback_feel": self.playback_feel_var.get(),
+                    "theme": self._theme_pref,
                 }
             )
         except OSError:
@@ -334,10 +330,10 @@ class GIFMaker:
             text=text,
             command=command,
             bg=bg,
-            fg=COLOR_TEXT_WHITE,
+            fg=self._theme.text_white,
             activebackground=self._shade(bg, -16),
-            activeforeground=COLOR_TEXT_WHITE,
-            disabledforeground=COLOR_TEXT_MUTED,
+            activeforeground=self._theme.text_white,
+            disabledforeground=self._theme.text_muted,
             relief="flat",
             bd=0,
             highlightthickness=0,
@@ -361,14 +357,14 @@ class GIFMaker:
             parent,
             textvariable=textvariable,
             width=width,
-            bg=COLOR_BG_INPUT,
-            fg=COLOR_TEXT_PRIMARY,
-            insertbackground=COLOR_TEXT_PRIMARY,
+            bg=self._theme.bg_input,
+            fg=self._theme.text_primary,
+            insertbackground=self._theme.text_primary,
             relief="flat",
             font=FONT_INPUT,
             highlightthickness=1,
-            highlightbackground=COLOR_BORDER,
-            highlightcolor=COLOR_ACCENT_BLUE,
+            highlightbackground=self._theme.border,
+            highlightcolor=self._theme.accent_blue,
         )
 
     def _make_label(
@@ -377,8 +373,8 @@ class GIFMaker:
         text: str,
         *,
         font: tuple = FONT_LABEL,
-        fg: str = COLOR_TEXT_PRIMARY,
-        bg: str = COLOR_BG_PRIMARY,
+        fg: Optional[str] = None,
+        bg: Optional[str] = None,
         anchor: str = "w",
         wraplength: Optional[int] = None,
     ) -> tk.Label:
@@ -387,8 +383,8 @@ class GIFMaker:
             parent,
             text=text,
             font=font,
-            fg=fg,
-            bg=bg,
+            fg=fg or self._theme.text_primary,
+            bg=bg or self._theme.bg_primary,
             anchor=anchor,
             wraplength=wraplength or 0,
             justify="left",
@@ -401,110 +397,317 @@ class GIFMaker:
         frame = tk.LabelFrame(
             parent,
             text=text,
-            fg=COLOR_TEXT_SECONDARY,
-            bg=COLOR_BG_PRIMARY,
+            fg=self._theme.text_secondary,
+            bg=self._theme.bg_primary,
             font=FONT_SECTION,
             relief="groove",
             bd=1,
             highlightthickness=0,
         )
-        inner = tk.Frame(frame, bg=COLOR_BG_PRIMARY, padx=16, pady=12)
+        inner = tk.Frame(frame, bg=self._theme.bg_primary, padx=16, pady=12)
         inner.pack(fill="both", expand=True)
         return frame, inner
+
+    def _make_scroll_page(
+        self, parent: tk.Widget
+    ) -> Tuple[tk.Frame, tk.Frame]:
+        """Create a scrollable tab page; returns (container, content_frame).
+
+        The vertical scrollbar appears only when the content is taller than
+        the visible page, and the content frame stretches to fill the page
+        when there is spare room (so previews/sections aren't stranded).
+        """
+        container = tk.Frame(parent, bg=self._theme.bg_primary)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(container, bg=self._theme.bg_primary, highlightthickness=0)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        vbar.grid(row=0, column=1, sticky="ns")
+        canvas.configure(yscrollcommand=vbar.set)
+
+        content = tk.Frame(canvas, bg=self._theme.bg_primary)
+        window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def _sync(_event: Optional["tk.Event"] = None) -> None:
+            canvas.update_idletasks()
+            page_h = canvas.winfo_height()
+            need_h = content.winfo_reqheight()
+            # Fill spare vertical room; scroll only when content overflows.
+            canvas.itemconfigure(
+                window_id, width=canvas.winfo_width(), height=max(page_h, need_h)
+            )
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            if need_h > page_h > 0:
+                vbar.grid()
+            else:
+                vbar.grid_remove()
+
+        content.bind("<Configure>", _sync)
+        canvas.bind("<Configure>", _sync)
+
+        # Register for the window-wide wheel router (see _on_mousewheel).
+        # Enter/Leave-based arming is unreliable: Tk fires <Leave> on a frame
+        # when the pointer crosses into a child widget, which would disarm
+        # scrolling over the card interior.
+        self._scroll_pages.append((container, canvas))
+
+        return container, content
+
+    def _on_mousewheel(self, event: "tk.Event") -> Optional[str]:
+        """Route the mouse wheel / trackpad to the scroll page under the pointer.
+
+        Resolves the widget beneath the cursor and walks up its master chain
+        so the wheel works anywhere inside a page — including over labels,
+        entries and comboboxes — not just the bare page background.
+
+        Scrolling is proportional to ``event.delta`` with a fractional
+        accumulator: trackpads emit small deltas (|delta| < 120) that would
+        truncate to zero if divided into whole mouse notches.
+        """
+        if not event.delta:
+            return None
+        target = self.root.winfo_containing(event.x_root, event.y_root)
+        while target is not None:
+            for _container, canvas in self._scroll_pages:
+                if target is canvas or target is _container:
+                    # 120 delta (one mouse notch) == 24px; trackpads scale down.
+                    pending = getattr(canvas, "_wheel_acc", 0.0) - event.delta * 0.2
+                    steps = int(pending)
+                    if steps:
+                        canvas.yview_scroll(steps, "units")
+                        pending -= steps
+                    canvas._wheel_acc = pending
+                    return "break"
+            target = target.master
+        return None
 
     def _configure_ttk_styles(self) -> None:
         """Apply the Google Material light theme to ttk widgets + tabs."""
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("TFrame", background=COLOR_BG_PRIMARY)
+        style.configure("TFrame", background=self._theme.bg_primary)
         style.configure(
-            "TLabel", background=COLOR_BG_PRIMARY, foreground=COLOR_TEXT_PRIMARY
+            "TLabel", background=self._theme.bg_primary, foreground=self._theme.text_primary
         )
         # Material tabs: light strip, white selected tab, blue selected label
-        style.configure("TNotebook", background=COLOR_BG_SECONDARY, borderwidth=0)
+        style.configure("TNotebook", background=self._theme.bg_secondary, borderwidth=0)
         style.configure(
             "TNotebook.Tab",
-            background=COLOR_BG_SECONDARY,
-            foreground=COLOR_TEXT_SECONDARY,
+            background=self._theme.bg_secondary,
+            foreground=self._theme.text_secondary,
             padding=[20, 10],
             font=FONT_BUTTON,
             borderwidth=0,
         )
         style.map(
             "TNotebook.Tab",
-            background=[("selected", COLOR_BG_PRIMARY)],
-            foreground=[("selected", COLOR_ACCENT_BLUE)],
+            background=[("selected", self._theme.bg_primary)],
+            foreground=[("selected", self._theme.accent_blue)],
         )
         style.configure(
             "TCombobox",
-            fieldbackground=COLOR_BG_INPUT,
-            background=COLOR_BG_INPUT,
-            foreground=COLOR_TEXT_PRIMARY,
-            arrowcolor=COLOR_TEXT_SECONDARY,
-            bordercolor=COLOR_BORDER,
-            lightcolor=COLOR_BORDER,
-            darkcolor=COLOR_BORDER,
+            fieldbackground=self._theme.bg_input,
+            background=self._theme.bg_input,
+            foreground=self._theme.text_primary,
+            arrowcolor=self._theme.text_secondary,
+            bordercolor=self._theme.border,
+            lightcolor=self._theme.border,
+            darkcolor=self._theme.border,
             arrowsize=16,
             padding=6,
         )
         style.map(
             "TCombobox",
-            fieldbackground=[("readonly", COLOR_BG_INPUT)],
-            foreground=[("readonly", COLOR_TEXT_PRIMARY)],
-            selectbackground=[("readonly", COLOR_BG_INPUT)],
-            selectforeground=[("readonly", COLOR_TEXT_PRIMARY)],
-            arrowcolor=[("disabled", COLOR_TEXT_MUTED)],
+            fieldbackground=[("readonly", self._theme.bg_input)],
+            foreground=[("readonly", self._theme.text_primary)],
+            selectbackground=[("readonly", self._theme.bg_input)],
+            selectforeground=[("readonly", self._theme.text_primary)],
+            arrowcolor=[("disabled", self._theme.text_muted)],
         )
         style.configure(
             "Vertical.TScrollbar",
-            background=COLOR_BORDER,
-            troughcolor=COLOR_BG_PRIMARY,
-            bordercolor=COLOR_BG_PRIMARY,
-            arrowcolor=COLOR_TEXT_SECONDARY,
+            background=self._theme.border,
+            troughcolor=self._theme.bg_primary,
+            bordercolor=self._theme.bg_primary,
+            arrowcolor=self._theme.text_secondary,
         )
         style.configure(
             "Horizontal.TProgressbar",
-            troughcolor=COLOR_SURFACE,
-            background=COLOR_ACCENT_BLUE,
-            bordercolor=COLOR_SURFACE,
-            lightcolor=COLOR_ACCENT_BLUE,
-            darkcolor=COLOR_ACCENT_BLUE,
+            troughcolor=self._theme.surface,
+            background=self._theme.accent_blue,
+            bordercolor=self._theme.surface,
+            lightcolor=self._theme.accent_blue,
+            darkcolor=self._theme.accent_blue,
             thickness=8,
         )
+
+    # --- Theme switching ---------------------------------------------------
+
+    def _on_theme_selected(self, _event=None) -> None:
+        """Handle theme combobox selection: map display label to key, switch."""
+        label = self.theme_var.get()
+        # Reverse-lookup: label -> key
+        theme_key = next(
+            (k for k, v in THEME_LABELS.items() if v == label), "system"
+        )
+        self._switch_theme(theme_key)
+
+    def _switch_theme(self, theme_name: str) -> None:
+        """Apply a new theme by name, recolor all widgets, and persist."""
+        old_theme = self._theme
+        self._theme_pref = theme_name
+        self._theme = resolve_theme_choice(theme_name)
+        if old_theme.bg_primary == self._theme.bg_primary:
+            return  # No actual change
+        self._apply_theme(old_theme)
+
+    def _apply_theme(self, old_theme: Theme) -> None:
+        """Reconfigure ttk styles and walk widget tree to swap colors."""
+        # Build old->new color substitution map
+        self._color_map: dict = {}
+        for attr, new_val in self._theme.color_map().items():
+            old_val = getattr(old_theme, attr, None)
+            if old_val and old_val != new_val:
+                self._color_map[old_val] = new_val
+        # Update root window
+        self.root.configure(bg=self._theme.bg_primary)
+        # Reconfigure ttk styles
+        self._configure_ttk_styles()
+        # Walk widget tree
+        self._recolor_tree(self.root)
+        # Persist
+        self._save_persisted_settings()
+
+    def _recolor_tree(self, widget) -> None:
+        """Recursively recolor widgets using the old->new color map."""
+        cmap = self._color_map
+        if not cmap:
+            return
+        try:
+            children = widget.winfo_children()
+        except tk.TclError:
+            return
+        for child in children:
+            self._recolor_child(child, cmap)
+            self._recolor_tree(child)
+
+    def _recolor_child(self, widget, cmap: dict) -> None:
+        """Attempt to remap a single widget's color options."""
+        try:
+            # tk widgets: bg, fg, activebackground, highlightbackground, etc.
+            if isinstance(widget, tk.Button):
+                base = getattr(widget, "_base_bg", "")
+                new_base = cmap.get(base)
+                if new_base:
+                    widget._base_bg = new_base
+                    widget.config(
+                        bg=new_base,
+                        activebackground=self._shade(new_base, -16),
+                        fg=self._theme.text_white,
+                        activeforeground=self._theme.text_white,
+                        disabledforeground=self._theme.text_muted,
+                    )
+                elif widget.cget("bg") in cmap:
+                    new_bg = cmap[widget.cget("bg")]
+                    widget._base_bg = new_bg
+                    widget.config(bg=new_bg, activebackground=self._shade(new_bg, -16))
+            elif isinstance(widget, (tk.Frame, tk.Label, tk.Canvas, tk.Toplevel)):
+                cur_bg = widget.cget("bg")
+                if cur_bg in cmap:
+                    widget.config(bg=cmap[cur_bg])
+                # Labels also have fg
+                if isinstance(widget, tk.Label):
+                    cur_fg = widget.cget("fg")
+                    if cur_fg in cmap:
+                        widget.config(fg=cmap[cur_fg])
+            elif isinstance(widget, tk.Entry):
+                cur_bg = widget.cget("bg")
+                if cur_bg in cmap:
+                    widget.config(bg=cmap[cur_bg])
+                cur_fg = widget.cget("fg")
+                if cur_fg in cmap:
+                    widget.config(fg=cmap[cur_fg], insertbackground=cmap[cur_fg])
+                cur_hl = widget.cget("highlightbackground")
+                if cur_hl in cmap:
+                    widget.config(highlightbackground=cmap[cur_hl])
+                cur_hc = widget.cget("highlightcolor")
+                if cur_hc in cmap:
+                    widget.config(highlightcolor=cmap[cur_hc])
+            elif isinstance(widget, tk.Text):
+                cur_bg = widget.cget("bg")
+                if cur_bg in cmap:
+                    widget.config(bg=cmap[cur_bg])
+                cur_fg = widget.cget("fg")
+                if cur_fg in cmap:
+                    widget.config(fg=cmap[cur_fg], insertbackground=cmap[cur_fg])
+                cur_hl = widget.cget("highlightbackground")
+                if cur_hl in cmap:
+                    widget.config(highlightbackground=cmap[cur_hl])
+            elif isinstance(widget, tk.LabelFrame):
+                cur_bg = widget.cget("bg")
+                if cur_bg in cmap:
+                    widget.config(bg=cmap[cur_bg])
+                cur_fg = widget.cget("fg")
+                if cur_fg in cmap:
+                    widget.config(fg=cmap[cur_fg])
+            elif isinstance(widget, tk.Listbox):
+                cur_bg = widget.cget("bg")
+                if cur_bg in cmap:
+                    widget.config(bg=cmap[cur_bg])
+                cur_fg = widget.cget("fg")
+                if cur_fg in cmap:
+                    widget.config(fg=cmap[cur_fg])
+                cur_sb = widget.cget("selectbackground")
+                if cur_sb in cmap:
+                    widget.config(selectbackground=cmap[cur_sb])
+                cur_sf = widget.cget("selectforeground")
+                if cur_sf in cmap:
+                    widget.config(selectforeground=cmap[cur_sf])
+                cur_hl = widget.cget("highlightbackground")
+                if cur_hl in cmap:
+                    widget.config(highlightbackground=cmap[cur_hl])
+        except tk.TclError:
+            pass  # Widget may not support certain options
 
     def create_widgets(self) -> None:
         """Create and configure all GUI widgets."""
         self._configure_ttk_styles()
 
+        # Scroll-page registry + window-wide wheel router (bound once).
+        self._scroll_pages = []
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel)
+
         # App bar: product name + version chip over a hairline divider
-        app_bar = tk.Frame(self.root, bg=COLOR_HEADER_BG)
+        app_bar = tk.Frame(self.root, bg=self._theme.header_bg)
         app_bar.pack(fill="x")
         tk.Label(
             app_bar,
             text="🎬 Gif-Maker",
             font=FONT_TITLE,
-            fg=COLOR_TEXT_PRIMARY,
-            bg=COLOR_HEADER_BG,
+            fg=self._theme.text_primary,
+            bg=self._theme.header_bg,
         ).pack(side="left", padx=(24, 8), pady=12)
         tk.Label(
             app_bar,
             text=f"V{__version__}",
             font=FONT_VERSION,
-            fg=COLOR_ACCENT_BLUE,
-            bg=COLOR_HEADER_BG,
+            fg=self._theme.accent_blue,
+            bg=self._theme.header_bg,
         ).pack(side="left", pady=12)
-        tk.Frame(self.root, bg=COLOR_BORDER, height=1).pack(fill="x")
+        tk.Frame(self.root, bg=self._theme.border, height=1).pack(fill="x")
 
         # Persistent bottom status strip (visible on every tab)
-        status_strip = tk.Frame(self.root, bg=COLOR_BG_SECONDARY)
+        status_strip = tk.Frame(self.root, bg=self._theme.bg_secondary)
         status_strip.pack(side="bottom", fill="x")
-        tk.Frame(self.root, bg=COLOR_BORDER, height=1).pack(side="bottom", fill="x")
+        tk.Frame(self.root, bg=self._theme.border, height=1).pack(side="bottom", fill="x")
 
         self.count_display = self._make_label(
             status_strip,
             "Screenshots: 0",
-            bg=COLOR_BG_SECONDARY,
-            fg=COLOR_TEXT_SECONDARY,
+            bg=self._theme.bg_secondary,
+            fg=self._theme.text_secondary,
             font=FONT_BUTTON,
         )
         self.count_display.pack(side="left", padx=(20, 12), pady=8)
@@ -516,44 +719,49 @@ class GIFMaker:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True, padx=16, pady=12)
 
-        tab_capture = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
-        tab_settings = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
-        tab_preview = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
-        tab_activity = tk.Frame(self.notebook, bg=COLOR_BG_PRIMARY)
+        tab_capture = tk.Frame(self.notebook, bg=self._theme.bg_primary)
+        tab_settings = tk.Frame(self.notebook, bg=self._theme.bg_primary)
+        tab_preview = tk.Frame(self.notebook, bg=self._theme.bg_primary)
+        tab_activity = tk.Frame(self.notebook, bg=self._theme.bg_primary)
         self.notebook.add(tab_capture, text="  Capture  ")
         self.notebook.add(tab_settings, text="  Settings  ")
         self.notebook.add(tab_preview, text="  Preview  ")
         self.notebook.add(tab_activity, text="  Activity  ")
 
         # --- Capture tab: region selection + primary actions ---
-        region_frame, region_inner = self._make_section(tab_capture, "Region Selection")
+        capture_page, capture_content = self._make_scroll_page(tab_capture)
+        capture_page.pack(fill="both", expand=True)
+
+        region_frame, region_inner = self._make_section(
+            capture_content, "Region Selection"
+        )
         region_frame.pack(fill="x", padx=4, pady=(4, 12))
 
-        region_buttons = tk.Frame(region_inner, bg=COLOR_BG_PRIMARY)
+        region_buttons = tk.Frame(region_inner, bg=self._theme.bg_primary)
         region_buttons.pack(anchor="w")
         self._make_button(
-            region_buttons, "Manual Coordinates", self.select_region, COLOR_ACCENT_BLUE
+            region_buttons, "Manual Coordinates", self.select_region, self._theme.accent_blue
         ).pack(side="left", padx=(0, 8))
         self._make_button(
-            region_buttons, "Full Screen", self.select_fullscreen, COLOR_ACCENT_PURPLE
+            region_buttons, "Full Screen", self.select_fullscreen, self._theme.accent_purple
         ).pack(side="left", padx=(0, 8))
         self._make_button(
-            region_buttons, "Pick Window", self.pick_window, COLOR_ACCENT_ORANGE
+            region_buttons, "Pick Window", self.pick_window, self._theme.accent_orange
         ).pack(side="left")
 
         self.region_label = self._make_label(
-            region_inner, "No region selected", fg=COLOR_TEXT_SECONDARY
+            region_inner, "No region selected", fg=self._theme.text_secondary
         )
         self.region_label.pack(anchor="w", pady=(10, 0))
 
-        control_frame = tk.Frame(tab_capture, bg=COLOR_BG_PRIMARY)
+        control_frame = tk.Frame(capture_content, bg=self._theme.bg_primary)
         control_frame.pack(fill="x", padx=4)
 
         self.record_button = self._make_button(
             control_frame,
             "🎬 Start Recording",
             self.toggle_recording,
-            COLOR_ACCENT_RED,
+            self._theme.accent_red,
             font=FONT_BUTTON_LARGE,
         )
         self.record_button.pack(side="left", padx=(0, 8))
@@ -562,7 +770,7 @@ class GIFMaker:
             control_frame,
             "🎞️ Create GIF",
             self.create_gif,
-            COLOR_ACCENT_GREEN,
+            self._theme.accent_green,
             font=FONT_BUTTON_LARGE,
             state="disabled",
         )
@@ -573,7 +781,7 @@ class GIFMaker:
             control_frame,
             "⏹️ Cancel Encode",
             self.request_encode_cancel,
-            COLOR_ACCENT_ORANGE,
+            self._theme.accent_orange,
             font=FONT_BUTTON_LARGE,
             state="disabled",
         )
@@ -583,14 +791,45 @@ class GIFMaker:
             control_frame,
             "🗑️ Clear",
             self.clear_screenshots,
-            COLOR_ACCENT_YELLOW,
+            self._theme.accent_yellow,
             font=FONT_BUTTON_LARGE,
         )
         self.clear_button.pack(side="left")
 
         # --- Settings tab ---
+        settings_page, settings_content = self._make_scroll_page(tab_settings)
+        settings_page.pack(fill="both", expand=True)
+
+        # Appearance: theme selector
+        appearance_frame, appearance_inner = self._make_section(
+            settings_content, "Appearance"
+        )
+        appearance_frame.pack(fill="x", padx=4, pady=(4, 12))
+        appearance_inner.columnconfigure(1, weight=1)
+
+        self._make_label(appearance_inner, "Theme:").grid(
+            row=0, column=0, sticky="w", padx=(0, 12), pady=5
+        )
+        self.theme_var = tk.StringVar(value=self._theme_pref)
+        theme_combo = ttk.Combobox(
+            appearance_inner, textvariable=self.theme_var, width=18, state="readonly"
+        )
+        theme_combo["values"] = list(THEME_LABELS.values())
+        theme_combo.grid(row=0, column=1, sticky="w", pady=5)
+        # Set display label to match current preference
+        theme_combo.set(THEME_LABELS.get(self._theme_pref, "System"))
+        theme_combo.bind("<<ComboboxSelected>>", self._on_theme_selected)
+
+        self._make_label(
+            appearance_inner,
+            "System follows OS dark/light setting automatically.",
+            font=FONT_HINT,
+            fg=self._theme.accent_blue,
+            wraplength=520,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
         settings_frame, settings_inner = self._make_section(
-            tab_settings, "Recording Settings"
+            settings_content, "Recording Settings"
         )
         settings_frame.pack(fill="x", padx=4, pady=(4, 12))
         settings_inner.columnconfigure(1, weight=1)
@@ -623,16 +862,36 @@ class GIFMaker:
             row=2, column=0, sticky="w", padx=(0, 12), pady=5
         )
         self.output_var = tk.StringVar(value="demo.gif")
-        output_row = tk.Frame(settings_inner, bg=COLOR_BG_PRIMARY)
+        output_row = tk.Frame(settings_inner, bg=self._theme.bg_primary)
         output_row.grid(row=2, column=1, sticky="w", pady=5)
         self._make_entry(output_row, self.output_var, 22).pack(side="left")
         self._make_button(
-            output_row, "Browse", self.browse_output, COLOR_BROWSE, font=FONT_LABEL
+            output_row, "Browse", self.browse_output, self._theme.text_secondary, font=FONT_LABEL
         ).pack(side="left", padx=(8, 0))
+
+        # Output location: resolved folder + quick open (kept in sync with path)
+        self._make_label(settings_inner, "Output folder:").grid(
+            row=3, column=0, sticky="w", padx=(0, 12), pady=5
+        )
+        folder_row = tk.Frame(settings_inner, bg=self._theme.bg_primary)
+        folder_row.grid(row=3, column=1, sticky="w", pady=5)
+        self.output_dir_label = self._make_label(
+            folder_row, "", fg=self._theme.text_secondary, font=FONT_HINT
+        )
+        self.output_dir_label.pack(side="left")
+        self._make_button(
+            folder_row,
+            "Open Folder",
+            self._open_output_folder,
+            self._theme.text_secondary,
+            font=FONT_LABEL,
+        ).pack(side="left", padx=(8, 0))
+        self.output_var.trace_add("write", lambda *_a: self._refresh_output_dir())
+        self._refresh_output_dir()
 
         # Quality setting
         self._make_label(settings_inner, "Quality:").grid(
-            row=3, column=0, sticky="w", padx=(0, 12), pady=5
+            row=4, column=0, sticky="w", padx=(0, 12), pady=5
         )
         self.quality_var = tk.StringVar(value="High (80%)")
         quality_combo = ttk.Combobox(
@@ -644,19 +903,19 @@ class GIFMaker:
             "Medium (85%)",
             "Low (75%)",
         )
-        quality_combo.grid(row=3, column=1, sticky="w", pady=5)
+        quality_combo.grid(row=4, column=1, sticky="w", pady=5)
 
         self._make_label(
             settings_inner,
             "High = best everyday look | MAX = pro demos | Medium/Low = smaller files",
             font=FONT_HINT,
-            fg=COLOR_TEXT_LIGHTBLUE,
+            fg=self._theme.accent_blue,
             wraplength=520,
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         # Playback feel (links capture timing → GIF frame duration)
         self._make_label(settings_inner, "Playback feel:").grid(
-            row=5, column=0, sticky="w", padx=(0, 12), pady=5
+            row=6, column=0, sticky="w", padx=(0, 12), pady=5
         )
         self.playback_feel_var = tk.StringVar(value=PLAYBACK_FEEL_MATCH)
         self.speed_var = tk.StringVar(value="Normal (5 FPS)")  # legacy persist mirror
@@ -664,7 +923,7 @@ class GIFMaker:
             settings_inner, textvariable=self.playback_feel_var, width=22, state="readonly"
         )
         feel_combo["values"] = PLAYBACK_FEEL_LABELS
-        feel_combo.grid(row=5, column=1, sticky="w", pady=5)
+        feel_combo.grid(row=6, column=1, sticky="w", pady=5)
         feel_combo.bind(
             "<<ComboboxSelected>>", lambda _e: self._sync_timing_from_simple()
         )
@@ -673,37 +932,42 @@ class GIFMaker:
             settings_inner,
             describe_timing("5 FPS", PLAYBACK_FEEL_MATCH),
             font=FONT_HINT,
-            fg=COLOR_TEXT_LIGHTBLUE,
+            fg=self._theme.accent_blue,
             wraplength=520,
         )
-        self.timing_hint.grid(row=6, column=0, columnspan=2, sticky="w", pady=(0, 2))
+        self.timing_hint.grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 2))
 
         self._sync_timing_from_simple()
 
         # --- Preview tab ---
-        self.setup_preview_panel(tab_preview)
+        preview_page, preview_content = self._make_scroll_page(tab_preview)
+        preview_page.pack(fill="both", expand=True)
+        self.setup_preview_panel(preview_content)
 
         # --- Activity tab: rolling log ---
-        log_frame = tk.Frame(tab_activity, bg=COLOR_BG_PRIMARY, padx=4, pady=4)
+        log_frame = tk.Frame(tab_activity, bg=self._theme.bg_primary, padx=4, pady=4)
         log_frame.pack(fill="both", expand=True)
         scrollbar = ttk.Scrollbar(log_frame, orient="vertical")
         scrollbar.pack(side="right", fill="y")
         self.status_text = tk.Text(
             log_frame,
-            bg=COLOR_BG_PRIMARY,
-            fg=COLOR_TEXT_PRIMARY,
+            bg=self._theme.bg_primary,
+            fg=self._theme.text_primary,
             font=FONT_MONO,
             relief="flat",
             padx=10,
             pady=8,
             wrap="word",
-            insertbackground=COLOR_TEXT_PRIMARY,
+            insertbackground=self._theme.text_primary,
             highlightthickness=1,
-            highlightbackground=COLOR_BORDER,
+            highlightbackground=self._theme.border,
             yscrollcommand=scrollbar.set,
         )
         self.status_text.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.status_text.yview)
+
+        # Hover cards for the tab strip
+        self._setup_tab_tooltips()
 
     def setup_keyboard_shortcuts(self) -> None:
         """Setup keyboard shortcuts for common actions."""
@@ -755,18 +1019,12 @@ class GIFMaker:
         )
 
     def _build_menu(self) -> None:
-        """Create the application menu bar (File / Edit / Help)."""
-        menubar = tk.Menu(self.root, tearoff=0)
+        """Create the application menu bar (Edit / Help).
 
-        file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="Set Output File…", command=self.browse_output)
-        file_menu.add_command(
-            label="Open Output Folder",
-            command=lambda: self.open_file_location(self.output_var.get()),
-        )
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.on_close)
-        menubar.add_cascade(label="File", menu=file_menu)
+        No File menu: output path / open-folder live in the Settings tab and
+        closing the window already runs the safe-shutdown handler.
+        """
+        menubar = tk.Menu(self.root, tearoff=0)
 
         edit_menu = tk.Menu(menubar, tearoff=0)
         edit_menu.add_command(
@@ -781,6 +1039,142 @@ class GIFMaker:
         menubar.add_cascade(label="Help", menu=help_menu)
 
         self.root.config(menu=menubar)
+
+    # --- Tab hover cards --------------------------------------------------
+
+    def _setup_tab_tooltips(self) -> None:
+        """Bind hover handlers that show a stylized card per notebook tab."""
+        self._tab_tooltip: Optional[tk.Toplevel] = None
+        self._tab_tooltip_index: Optional[int] = None
+        self._tab_tooltip_after: Optional[str] = None
+        # index -> (title, one technical sentence, one friendly sentence)
+        self._tab_tooltips = {
+            0: (
+                "Capture",
+                "Selects a screen region and grabs N frames at the chosen FPS via pyautogui.",
+                "Pick what to record, then hit Start Recording.",
+            ),
+            1: (
+                "Settings",
+                "Tunes frame count, capture rate, output path, quantization quality and GIF frame duration.",
+                "Choose how many pictures to take and how smooth the GIF looks.",
+            ),
+            2: (
+                "Preview",
+                "Renders LANCZOS-downsampled thumbnails of captured frames with per-frame delete.",
+                "Look through your pictures before making the GIF.",
+            ),
+            3: (
+                "Activity",
+                "Rolling application log mirrored to ~/.gifmaker/logs/gifmaker.log.",
+                "See what the app is doing, step by step.",
+            ),
+        }
+        self.notebook.bind("<Button-1>", self._hide_tab_tooltip, add="+")
+        self.notebook.bind("<<NotebookTabChanged>>", self._hide_tab_tooltip)
+        # Motion on the root: the toplevel is in every child's binding-tag chain,
+        # so we get pointer moves over the tab strip reliably (a notebook-only
+        # binding misses them on some Tk builds).
+        self.root.bind("<Motion>", self._on_root_motion)
+        self.root.bind("<Leave>", self._hide_tab_tooltip)
+
+    def _tab_index_at(self, x: int, y: int) -> Optional[int]:
+        """Return the tab index at notebook-relative (x, y), else None.
+
+        Uses ``notebook.index('@x,y')`` because ``notebook.bbox()`` reports
+        degenerate (0,0,0,0) boxes on some Windows Tk builds.
+        """
+        try:
+            return int(self.notebook.index(f"@{x},{y}"))
+        except (tk.TclError, ValueError):
+            return None
+
+    def _on_root_motion(self, event: "tk.Event") -> None:
+        """Show/hide the tab hover card from window-wide pointer motion."""
+        nx = event.x_root - self.notebook.winfo_rootx()
+        ny = event.y_root - self.notebook.winfo_rooty()
+        idx = self._tab_index_at(nx, ny)
+        if idx is None:
+            self._hide_tab_tooltip()
+            return
+        # Same tab: keep the pending dwell timer or the visible card. Re-arming
+        # on every micro-move would reset the delay forever and the card
+        # would never appear while the pointer is in motion.
+        if idx == self._tab_tooltip_index:
+            return
+        self._hide_tab_tooltip()
+        self._tab_tooltip_index = idx
+        self._tab_tooltip_after = self.notebook.after(
+            250,
+            lambda i=idx, rx=event.x_root, ry=event.y_root: self._show_tab_tooltip(
+                i, rx, ry
+            ),
+        )
+
+    def _show_tab_tooltip(self, index: int, x_root: int, y_root: int) -> None:
+        """Build and place the stylized tooltip card for a tab index."""
+        try:
+            self._build_tab_tooltip(index, x_root, y_root)
+        except (tk.TclError, ValueError) as e:  # never crash the UI on hover
+            self._tab_tooltip_after = None
+            self.log(f"Tooltip suppressed: {e}")
+
+    def _build_tab_tooltip(self, index: int, x_root: int, y_root: int) -> None:
+        """Internal: construct the tooltip card geometry and widgets."""
+        self._tab_tooltip_after = None  # dwell timer has fired
+        content = self._tab_tooltips.get(index)
+        if content is None:
+            return
+        title, tech, consumer = content
+
+        tip = tk.Toplevel(self.root)
+        tip.wm_overrideredirect(True)
+        tip.wm_attributes("-topmost", True)
+        tip.configure(bg=self._theme.border)  # 1px hairline border around the card
+
+        card = tk.Frame(tip, bg=self._theme.bg_primary)
+        card.pack(fill="both", expand=True, padx=1, pady=1)
+
+        tk.Frame(card, bg=self._theme.accent_blue, width=4).pack(side="left", fill="y")
+        body = tk.Frame(card, bg=self._theme.bg_primary, padx=12, pady=10)
+        body.pack(side="left", fill="both", expand=True)
+
+        tk.Label(
+            body, text=title, font=FONT_SECTION, fg=self._theme.text_primary,
+            bg=self._theme.bg_primary, anchor="w",
+        ).pack(fill="x")
+        tk.Label(
+            body, text=tech, font=FONT_HINT, fg=self._theme.text_secondary,
+            bg=self._theme.bg_primary, anchor="w", wraplength=280, justify="left",
+        ).pack(fill="x", pady=(4, 0))
+        tk.Label(
+            body, text=consumer, font=FONT_HINT, fg=self._theme.accent_blue,
+            bg=self._theme.bg_primary, anchor="w", wraplength=280, justify="left",
+        ).pack(fill="x", pady=(4, 0))
+
+        tip.update_idletasks()
+        width = tip.winfo_reqwidth()
+        height = tip.winfo_reqheight()
+        x = min(x_root + 18, tip.winfo_screenwidth() - width - 8)
+        y = min(y_root + 18, tip.winfo_screenheight() - height - 8)
+        tip.wm_geometry(f"+{max(0, x)}+{max(0, y)}")
+        self._tab_tooltip = tip
+
+    def _hide_tab_tooltip(self, event: Optional["tk.Event"] = None) -> None:
+        """Dismiss the hover card and cancel any pending show."""
+        if self._tab_tooltip_after is not None:
+            try:
+                self.notebook.after_cancel(self._tab_tooltip_after)
+            except (ValueError, tk.TclError):
+                pass
+            self._tab_tooltip_after = None
+        if self._tab_tooltip is not None:
+            try:
+                self._tab_tooltip.destroy()
+            except tk.TclError:
+                pass
+            self._tab_tooltip = None
+        self._tab_tooltip_index = None
 
     def cancel_if_recording(self, event: Optional[tk.Event] = None) -> None:
         """Escape: stop recording, or cancel in-progress GIF encode."""
@@ -817,22 +1211,22 @@ class GIFMaker:
         self.preview_label = tk.Label(
             preview_inner,
             text="No images captured yet",
-            bg=COLOR_BG_PRIMARY,
-            fg=COLOR_TEXT_SECONDARY,
+            bg=self._theme.bg_primary,
+            fg=self._theme.text_secondary,
             font=FONT_LABEL,
             relief="flat",
             highlightthickness=1,
-            highlightbackground=COLOR_BORDER,
+            highlightbackground=self._theme.border,
         )
         self.preview_label.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
 
         # Navigation controls
-        nav_frame = tk.Frame(preview_inner, bg=COLOR_BG_PRIMARY)
+        nav_frame = tk.Frame(preview_inner, bg=self._theme.bg_primary)
         nav_frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
         nav_frame.columnconfigure(1, weight=1)
 
         self.prev_button = self._make_button(
-            nav_frame, "◀", self.prev_image, COLOR_ACCENT_BLUE,
+            nav_frame, "◀", self.prev_image, self._theme.accent_blue,
             font=FONT_BUTTON, width=3, state="disabled",
         )
         self.prev_button.grid(row=0, column=0)
@@ -843,30 +1237,30 @@ class GIFMaker:
         self.image_counter.grid(row=0, column=1, sticky="ew")
 
         self.next_button = self._make_button(
-            nav_frame, "▶", self.next_image, COLOR_ACCENT_BLUE,
+            nav_frame, "▶", self.next_image, self._theme.accent_blue,
             font=FONT_BUTTON, width=3, state="disabled",
         )
         self.next_button.grid(row=0, column=2)
 
         # Image info
         self.image_info = self._make_label(
-            preview_inner, "", font=FONT_HINT, fg=COLOR_TEXT_LIGHTBLUE, anchor="center"
+            preview_inner, "", font=FONT_HINT, fg=self._theme.accent_blue, anchor="center"
         )
         self.image_info.grid(row=2, column=0, sticky="ew", pady=(0, 6))
 
         # Action buttons
-        action_frame = tk.Frame(preview_inner, bg=COLOR_BG_PRIMARY)
+        action_frame = tk.Frame(preview_inner, bg=self._theme.bg_primary)
         action_frame.grid(row=3, column=0, sticky="ew")
         action_frame.columnconfigure(0, weight=1)
 
         self.delete_button = self._make_button(
-            action_frame, "🗑️ Delete", self.delete_current_image, COLOR_ACCENT_RED,
+            action_frame, "🗑️ Delete", self.delete_current_image, self._theme.accent_red,
             font=FONT_LABEL, state="disabled",
         )
         self.delete_button.grid(row=0, column=0, sticky="w")
 
         self.refresh_button = self._make_button(
-            action_frame, "🔄 Refresh", self.refresh_preview, COLOR_ACCENT_GREEN,
+            action_frame, "🔄 Refresh", self.refresh_preview, self._theme.accent_green,
             font=FONT_LABEL,
         )
         self.refresh_button.grid(row=0, column=1, sticky="e")
@@ -1549,7 +1943,7 @@ class GIFMaker:
         self._picked_windows = windows
         picker = tk.Toplevel(self.root)
         picker.title("Pick Window")
-        picker.configure(bg=COLOR_BG_PRIMARY)
+        picker.configure(bg=self._theme.bg_primary)
         picker.transient(self.root)
         picker.grab_set()
         self._window_picker = picker
@@ -1557,12 +1951,12 @@ class GIFMaker:
         tk.Label(
             picker,
             text="Select a window to capture:",
-            fg=COLOR_TEXT_PRIMARY,
-            bg=COLOR_BG_PRIMARY,
+            fg=self._theme.text_primary,
+            bg=self._theme.bg_primary,
             font=FONT_SECTION,
         ).pack(padx=12, pady=(12, 6))
 
-        list_frame = tk.Frame(picker, bg=COLOR_BG_PRIMARY)
+        list_frame = tk.Frame(picker, bg=self._theme.bg_primary)
         list_frame.pack(fill="both", expand=True, padx=12, pady=6)
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
         scrollbar.pack(side="right", fill="y")
@@ -1572,13 +1966,13 @@ class GIFMaker:
             height=14,
             yscrollcommand=scrollbar.set,
             exportselection=False,
-            bg=COLOR_BG_INPUT,
-            fg=COLOR_TEXT_PRIMARY,
-            selectbackground=COLOR_ACCENT_BLUE,
-            selectforeground=COLOR_TEXT_WHITE,
+            bg=self._theme.bg_input,
+            fg=self._theme.text_primary,
+            selectbackground=self._theme.accent_blue,
+            selectforeground=self._theme.text_white,
             relief="flat",
             highlightthickness=1,
-            highlightbackground=COLOR_BORDER,
+            highlightbackground=self._theme.border,
             font=FONT_LABEL,
         )
         listbox.pack(side="left", fill="both", expand=True)
@@ -1589,7 +1983,7 @@ class GIFMaker:
             listbox.insert(tk.END, label)
         listbox.selection_set(0)
 
-        btn_row = tk.Frame(picker, bg=COLOR_BG_PRIMARY)
+        btn_row = tk.Frame(picker, bg=self._theme.bg_primary)
         btn_row.pack(fill="x", padx=12, pady=(6, 12))
 
         def on_ok() -> None:
@@ -1610,10 +2004,10 @@ class GIFMaker:
             self._window_picker = None
 
         self._make_button(
-            btn_row, "Use Window", on_ok, COLOR_ACCENT_GREEN
+            btn_row, "Use Window", on_ok, self._theme.accent_green
         ).pack(side="left", padx=(0, 8))
         self._make_button(
-            btn_row, "Cancel", on_cancel, COLOR_BROWSE
+            btn_row, "Cancel", on_cancel, self._theme.text_secondary
         ).pack(side="left")
         listbox.bind("<Double-Button-1>", lambda _e: on_ok())
         picker.protocol("WM_DELETE_WINDOW", on_cancel)
@@ -1634,6 +2028,19 @@ class GIFMaker:
                 self.output_var.set(filename)
             except (OSError, ValueError) as e:
                 messagebox.showerror("Error", f"Invalid file path: {e}")
+
+    def _refresh_output_dir(self) -> None:
+        """Update the read-only 'Output folder' label from the output path."""
+        raw = (self.output_var.get() or "").strip()
+        if not raw:
+            self.output_dir_label.config(text="(no output set)")
+            return
+        folder = os.path.dirname(os.path.abspath(raw)) or "."
+        self.output_dir_label.config(text=folder)
+
+    def _open_output_folder(self) -> None:
+        """Open the resolved output directory in the system file manager."""
+        self.open_file_location(self.output_var.get())
 
     def toggle_recording(self) -> None:
         """Start or stop recording.
@@ -1665,7 +2072,7 @@ class GIFMaker:
         self._sync_timing_from_simple()
         self.interval = float(self.interval_var.get())
         self.is_recording = True
-        self.record_button.config(text="⏹️ Stop Recording", bg=COLOR_ACCENT_RED)
+        self.record_button.config(text="⏹️ Stop Recording", bg=self._theme.accent_red)
         self.create_button.config(state="disabled")
         self._set_mutate_controls(False)
 
@@ -1703,7 +2110,7 @@ class GIFMaker:
         and updates UI button states.
         """
         self.is_recording = False
-        self.record_button.config(text="🎬 Start Recording", bg=COLOR_ACCENT_RED)
+        self.record_button.config(text="🎬 Start Recording", bg=self._theme.accent_red)
         self.create_button.config(
             state="normal" if self.screenshots else "disabled"
         )

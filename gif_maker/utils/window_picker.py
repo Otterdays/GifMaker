@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from gif_maker.core.constants import MIN_REGION_SIZE
 
@@ -46,24 +46,6 @@ def is_capturable_window(
         if part.lower() in lowered:
             return False
     return True
-
-
-def filter_windows(
-    windows: Iterable[WindowInfo],
-    *,
-    exclude_substrings: Optional[Sequence[str]] = None,
-) -> List[WindowInfo]:
-    """Filter a list of WindowInfo with capturable rules."""
-    out: List[WindowInfo] = []
-    for win in windows:
-        if is_capturable_window(
-            win.title,
-            win.width,
-            win.height,
-            exclude_substrings=exclude_substrings,
-        ):
-            out.append(win)
-    return out
 
 
 def list_capturable_windows(

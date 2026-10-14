@@ -2,7 +2,6 @@
 
 from gif_maker.utils.window_picker import (
     WindowInfo,
-    filter_windows,
     is_capturable_window,
 )
 
@@ -26,15 +25,16 @@ class TestIsCapturableWindow:
         )
 
 
-class TestFilterWindows:
-    def test_filters_and_keeps(self) -> None:
-        wins = [
-            WindowInfo("Good App", 10, 10, 500, 400),
-            WindowInfo("", 0, 0, 500, 400),
-            WindowInfo("Tiny", 0, 0, 10, 10),
-            WindowInfo("Gif-Maker V1", 0, 0, 500, 400),
-        ]
-        out = filter_windows(wins, exclude_substrings=("Gif-Maker",))
-        assert len(out) == 1
-        assert out[0].title == "Good App"
-        assert out[0].as_region() == (10, 10, 500, 400)
+class TestWindowInfo:
+    def test_as_region(self) -> None:
+        win = WindowInfo("Good App", 10, 10, 500, 400)
+        assert win.as_region() == (10, 10, 500, 400)
+
+    def test_is_frozen(self) -> None:
+        win = WindowInfo("Good App", 10, 10, 500, 400)
+        try:
+            win.title = "changed"  # type: ignore[misc]
+        except Exception:
+            pass
+        else:  # pragma: no cover - frozen dataclass must raise
+            raise AssertionError("WindowInfo should be frozen")

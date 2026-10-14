@@ -2,7 +2,6 @@
 
 from gif_maker.core.constants import MIN_REGION_SIZE
 from gif_maker.utils.region_math import (
-    center_region,
     is_region_large_enough,
     selection_to_region,
 )
@@ -25,11 +24,3 @@ class TestIsRegionLargeEnough:
 
     def test_too_small(self) -> None:
         assert not is_region_large_enough((0, 0, MIN_REGION_SIZE - 1, MIN_REGION_SIZE))
-
-
-class TestCenterRegion:
-    def test_centers(self) -> None:
-        assert center_region(1920, 1080, 1400, 900) == (260, 90, 1400, 900)
-
-    def test_clamps_to_screen(self) -> None:
-        assert center_region(800, 600, 2000, 2000) == (0, 0, 800, 600)

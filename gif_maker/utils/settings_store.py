@@ -28,7 +28,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "speed": "Normal (5 FPS)",
     "capture_fps": "5 FPS",
     "playback_feel": PLAYBACK_FEEL_MATCH,
+    "theme": "system",
 }
+
+ALLOWED_THEMES = {"system", "light", "dark", "oled", "high_contrast"}
 
 ALLOWED_QUALITY = {
     "MAX (100%)",
@@ -102,6 +105,10 @@ def sanitize_settings(raw: Dict[str, Any]) -> Dict[str, Any]:
     feel = raw.get("playback_feel")
     if feel in PLAYBACK_FEEL_LABELS:
         out["playback_feel"] = feel
+
+    theme = raw.get("theme")
+    if theme in ALLOWED_THEMES:
+        out["theme"] = theme
 
     # Keep interval derived from capture FPS (source of truth)
     fps = parse_capture_fps(out["capture_fps"])

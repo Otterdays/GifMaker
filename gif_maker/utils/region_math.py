@@ -28,17 +28,3 @@ def is_region_large_enough(
     """True when width and height meet minimum selection size."""
     _x, _y, width, height = region
     return width >= min_size and height >= min_size
-
-
-def center_region(
-    screen_width: int,
-    screen_height: int,
-    region_width: int,
-    region_height: int,
-) -> Tuple[int, int, int, int]:
-    """Clamp and center a box on the screen (browser-size style)."""
-    w = max(1, min(region_width, screen_width))
-    h = max(1, min(region_height, screen_height))
-    x = max(0, (screen_width - w) // 2)
-    y = max(0, (screen_height - h) // 2)
-    return (x, y, w, h)

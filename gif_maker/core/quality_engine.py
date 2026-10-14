@@ -207,7 +207,12 @@ def estimate_gif_size_logic(
     if not images:
         return "No screenshots"
     try:
-        avg_size = sum(len(img.tobytes()) for img in images) / len(images)
+        # Raw pixel bytes (w*h*bands) — avoids allocating a full tobytes()
+        # buffer per frame just to measure it.
+        avg_size = (
+            sum(img.width * img.height * len(img.getbands()) for img in images)
+            / len(images)
+        )
         prefix = _label_prefix(quality_label, list(QUALITY_BY_LABEL_PREFIX.keys()))
         quality_factor = {
             "MAX": 1.0,

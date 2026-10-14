@@ -622,3 +622,86 @@ If the codebase grows, consider splitting into: `gif_maker/gui/main_window.py`, 
 **Last Updated**: 2025-03-19  
 **Version**: 1.0.3  
 **Maintainer**: AfyKirby1
+
+---
+
+## Theming Architecture [AMENDED 2026-10-13]
+
+### Overview
+
+The theming system (`gif_maker/core/theme.py`) provides a structured, multi-palette color engine supporting Light, Dark, OLED, and High Contrast presets plus automatic System theme detection from the OS registry.
+
+### Design
+
+```
+gif_maker/core/theme.py
+|
+|-- Theme (frozen dataclass)       # Immutable color palette
+|-- LIGHT / DARK / OLED / HIGH_CONTRAST  # Preset instances
+|-- THEME_REGISTRY                 # name -> Theme lookup
+|-- THEME_LABELS                   # GUI display names
+|-- detect_system_theme()          # Windows registry AppsUseLightTheme
+|-- resolve_theme_choice(pref)     # Map preference string to Theme
+```
+
+### How it works
+
+1. **Startup**: `GIFMaker.__init__` loads persisted settings, resolves the theme preference (default: `"system"`), and stores `self._theme: Theme` before any widget creation.
+2. **Widget creation**: All helpers (`_make_button`, `_make_entry`, `_make_label`, `_make_section`, `_configure_ttk_styles`) reference `self._theme.*` for colors.
+3. **Theme switching**: `_switch_theme()` captures the old theme, resolves the new one, builds a `color_map` (old hex -> new hex), reconfigures ttk styles, then recursively walks the widget tree (`_recolor_tree`) substituting matching colors.
+4. **Persistence**: The chosen theme preference is saved in `~/.gifmaker/settings.json` alongside other settings.
+
+### Color roles
+
+| Theme attribute | Purpose |
+|----------------|--------|
+| `bg_primary` | Card / window surface |
+| `bg_secondary` | App background, tab strip, status bar |
+| `bg_input` | Text-field surface |
+| `surface` | Filled field / inactive tab |
+| `border` | Hairline dividers, outlines |
+| `header_bg` | App bar background |
+| `text_primary` | Primary body text |
+| `text_secondary` | Secondary text / labels |
+| `text_muted` | Hints + disabled foreground |
+| `text_white` | Fg on filled accent buttons |
+| `accent_blue` | Progress bar, focus ring, links |
+| `accent_red` | Record button |
+| `accent_green` | Create GIF button |
+| `accent_yellow` | Clear button |
+| `accent_orange` | Cancel/Window picker |
+| `accent_purple` | Full-screen button |
+
+### Backward compatibility
+
+`gif_maker/core/constants.py` still exposes `COLOR_*` module-level names sourced from the default (LIGHT) theme. These serve non-GUI code paths; the GUI exclusively uses `self._theme`.
+
+### Preset palettes
+
+| Token | Light | Dark | OLED | High Contrast |
+|-------|-------|------|------|---------------|
+| bg_primary | #ffffff | #1e1e1e | #000000 | #000000 |
+| bg_secondary | #f8f9fa | #2d2d2d | #0a0a0a | #000000 |
+| bg_input | #ffffff | #3c3c3c | #1a1a1a | #000000 |
+| surface | #f1f3f4 | #333333 | #111111 | #1a1a1a |
+| border | #dadce0 | #555555 | #333333 | #ffffff |
+| text_primary | #202124 | #e8eaed | #e8eaed | #ffffff |
+| text_secondary | #5f6368 | #9aa0a6 | #9aa0a6 | #cccccc |
+| accent_blue | #1a73e8 | #8ab4f8 | #8ab4f8 | #00bfff |
+| accent_red | #d93025 | #f28b82 | #f28b82 | #ff6600 |
+| accent_green | #188038 | #81c995 | #81c995 | #00ff00 |
+
+### Package layout update
+
+```
+gif_maker/
+|-- core/
+|   |-- theme.py            # NEW: Theme dataclass + presets + detection
+|   |-- constants.py        # Colors sourced from theme
+|   |-- ...
+|-- gui/
+|   |-- main_window.py      # Uses self._theme, has _switch_theme + _recolor_tree
+|-- utils/
+|   |-- settings_store.py   # Persists "theme" key
+|-- ...
+```
